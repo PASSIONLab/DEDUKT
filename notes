@@ -1,0 +1,5 @@
+DEFS="-DKMERA_ONLY=1 -DMAX_NUM_READS_LIST=4;8;16" DEBUG=1 sh install.sh
+mpirun -n 1 build-dbg/bin/main-16-32 -k 17 -u 8 -i list_tmp1.txt -s kmermatch-17
+export CC=/usr/local/Cellar/gcc@8/8.4.0_1/bin/gcc-8
+export CXX=/usr/local/Cellar/gcc@8/8.4.0_1/bin/g++-8
+make -C build-dbg/ kmermatch-16-32

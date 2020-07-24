@@ -1,0 +1,79 @@
+#!/bin/bash
+#
+# Variables (expected from $1)		Description
+# 	link_files()			function for linking data files to run directory
+# 	K				k-mer length
+# 	H				reliable k-mer upper limit
+#
+# Variables (set externally) 		Options
+#	DBG				"-dbg", ""
+#	PPN	(processors per node)	integer [1,16] on Titan)
+#	TASKS_PER_NUMA			integer [1, 8] on Titan, must be < PPN
+#	CPP (cores per processor)	integer [1, 2] on Titan
+#	CMP_MAX (precompiled readId buffer lengths, usually next greater power of 2 after $H)
+#
+# Variables (internal - may want to change)
+#	BIN (name of binary to execute)
+#
+
+######### Set data-dependent variables #########
+if [ -z $LINKER ]; then
+	echo "Script for linking data files is required. Set LINKER."
+	exit 1
+fi
+source $LINKER
+E=2
+
+NUM_NODES=$PBS_NUM_NODES
+if [ -z $LOWER ]; then LOWER=$NUM_NODES; fi
+while [ $NUM_NODES -ge $LOWER ]; do
+######### Set performance/parallelism variables #########
+let MPI_TASKS=$NUM_NODES*${PPN}
+NUMA_DOMAINS=2 				# 2 NUMA domains with 8 dual-core processors each on Titan (Cray XK7) nodes
+if [ -z ${TASKS_PER_NUMA+x} ]; then
+	let TASKS_PER_NUMA=(${PPN}+${NUMA_DOMAINS}-1)/${NUMA_DOMAINS} # split tasks between NUMA domains by default
+fi
+if [ -z ${CPP+x} ]; then
+	if [ ${PPN} -lt 9 ]; then 
+    	CPP=1 				    # spread mpi tasks out across paired cores if 8/16 or fewer cores are being used
+    else
+    	CPP=2
+    fi
+fi
+export PMI_DEBUG=1 			# always show MPI per-node rank placement information
+RUN="aprun -n ${MPI_TASKS} -N ${PPN} -S ${TASKS_PER_NUMA} -j ${CPP}"
+
+######### Set runtime variables #########
+cd $MEMBERWORK/$MYPROJECT/ 		# cd here first to avoid file system issues
+RUN_DIR=diBELLA${DBG}_${PBS_NUM_NODES}n_${PPN}c_${DATA}_k${K}_e${E}_h${H}_${PBS_JOBID}
+mkdir ${RUN_DIR}
+cd ${RUN_DIR}
+link_files  				    # function included/required in $1, includes $DATA_FILES, $H, etc.
+BIN="main-${CMP_MAX}-32"    # TODO generalize
+CMD1=$RUN" ${INSTALL_DIR}/${BIN} -N $PPN -k ${K} -i ${DATA_FILES} ${STAGES} -e ${E} -u ${H}"
+
+######### Report runtime setup #########
+#echo "cleaning-out previous log files"
+#set -x
+#rm per_thread/*/*/*.log
+#set +x
+
+######### Report runtime setup #########
+BAR="===================="
+echo "Host Name: "$HOSTNAME
+echo "Number of nodes: $NUM_NODES of "${PBS_NUM_NODES}
+echo "Data: "$DATA
+if [ -z ${DBG} ]; then
+  echo "Running in mode: Release"
+else
+  echo "Running in mode: Debug"
+fi
+echo "Run directory is: "$(pwd)
+echo "Date: $(date)"
+echo $BAR" Starting pipeline "$BAR
+
+######### Run #########
+echo $CMD1
+if [ -z $SCRIPT_TEST ]; then $CMD1; fi
+NUM_NODES=$(($NUM_NODES/2)) 
+done # end loop over number of nodes

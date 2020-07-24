@@ -1,0 +1,18 @@
+CC = gcc-8
+CXX = g++-8
+CFLAGS = -g -Wall
+
+default:test
+
+test: read_compression.o test_compression.o
+	$(CXX) $(CFLAGS) -o test read_compression.o test_compression.o
+
+read_compression.o: read_compression.cpp
+	$(CXX) $(CFLAGS) -c read_compression.cpp
+
+test_compression.o: test_compression.cpp read_compression.h
+	$(CXX) $(CFLAGS) -c test_compression.cpp
+
+clean:
+	rm test
+	rm *.o

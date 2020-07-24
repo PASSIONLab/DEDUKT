@@ -1,0 +1,1 @@
+/Users/isratnisa/software/dibella_bsp/dataset/ecolisample30x.fastq

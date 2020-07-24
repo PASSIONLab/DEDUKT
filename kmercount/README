@@ -1,0 +1,77 @@
+/* outdated! */
+
+New: FASTQ is accepted natively 
+
+Simple start: 
+>> git clone https://bitbucket.org/berkeleylab/hipmeraculous
+>> cd src/c/kMerCount
+>> ln -s makefile.edison Makefile
+>> vi Makefile (change -DKMERlength=51 and other MACROS as needed)
+>> make ufx
+
+MACRO (compile time) Parameters: 
+ILLUMINA_VERSION: Accepted values use the XY format where 13 means 1.3, etc. This determines other parameters internally (such as quality trimming using the ‘B’ special trimming for 1.8 > versions >= 1.5, and the Phred encoding). If not defined, settings are the same as >= 1.8
+KMERlength: The k-mer length. Anything <= 160 is accepted. This internally sets the correct data structure sizes as well (default: 51 if not defined)
+
+The logic for the most important compile time parameters are in "HipMERdefines.h", which is the first file that should be included.
+
+Required run-time parameters
+Usage: ./ufx <filenames> <error threshold> 
+<filenames> is a text files containing the paths to each file to be counted [one on each line]
+<error threshold> anything that occurs less frequently is considered an error and is tossed out. This can be set to the same value as dmin (a la Meraculous) if that has already been computed because any UFX code with less than dmin occurrences will simply have X on both ends (and hence is useless). If the histogram is not known, it is safe to set it to 2 (so that only single occurrence entries will be ignored). Naturally, it doesn’t effect the histogram, which includes everything.
+
+Example compilation looks like:
+CC   -O3   -std=c++11 -Wshadow -Wreturn-type -DILLUMINA_VERSION=18 -DKMERlength=51   -c -o Kmer.o Kmer.cpp
+CC   -O3   -std=c++11 -Wshadow -Wreturn-type -DILLUMINA_VERSION=18 -DKMERlength=51   -c -o KmerIterator.o KmerIterator.cpp
+CC   -O3   -std=c++11 -Wshadow -Wreturn-type -DILLUMINA_VERSION=18 -DKMERlength=51   -c -o hash.o hash.cpp
+CC   -O3   -std=c++11 -Wshadow -Wreturn-type -DILLUMINA_VERSION=18 -DKMERlength=51   -c -o fastq.o fastq.cpp
+CC   -O3   -std=c++11 -Wshadow -Wreturn-type -DILLUMINA_VERSION=18 -DKMERlength=51   -c -o KmerMiddle.o KmerMiddle.cpp
+CC   -O3   -std=c++11 -Wshadow -Wreturn-type -DILLUMINA_VERSION=18 -DKMERlength=51   -c -o MPIType.o MPIType.cpp
+CC  -DFASTQ_ONLY    -O3   -std=c++11 -Wshadow -Wreturn-type -DILLUMINA_VERSION=18 -DKMERlength=51  -o ufx UFXextended.o Kmer.o KmerIterator.o hash.o fastq.o KmerMiddle.o MPIType.o -L/global/homes/a/abuluc/mapdata/kMerCount/gzstream/ -lgzstream -lz 
+
+
+Example submission script:
+#PBS -q debug
+#PBS -l mppwidth=960
+#PBS -l walltime=00:30:00
+#PBS -N my_job
+#PBS -e my_job.$PBS_JOBID.err
+#PBS -o my_job.$PBS_JOBID.out
+#PBS -V
+
+cd /scratch3/scratchdirs/abuluc/human
+aprun -n 960 ./ufx humans.original 3
+
+where humans.original is:
+>> cat /scratch3/scratchdirs/abuluc/human/humans.original 
+
+/scratch3/scratchdirs/abuluc/human/s_1_1_sequence.fq
+/scratch3/scratchdirs/abuluc/human/s_1_2_sequence.fq
+
+Important: Please don’t run on files stored in slow disks (such as the project directories). Use $SCRATCH or $GSCRATCH (former is faster) and stripe the disks as advised here:
+http://www.nersc.gov/users/data-and-file-systems/optimizing-io-performance-for-lustre/
+
+Troubleshooting:
+If the code gets stuck in reading your input, make sure that you are adhering to the format: http://www.ncbi.nlm.nih.gov/pmc/articles/PMC2847217/
+In particular, make sure that all your records (including the last one) ends with a newline
+
+The UFX-extended format:
+k-mer LeftExt[count, nextbestcount] RightExt[count, nextbestcount]
+In essence, this is a generalized UFX that works with all dmin (depth threshold) values. Figuring out the right dmin value for a dataset requires  looking at distributions to decide what that parameter should be. A possible definition of dmin is “the smallest count we consider for evidence”
+
+Example, the mergraph:
+[2 0 10 0]   [3  14 0 0]
+becomes  
+
+FF for dmin <= 2
+GF for dmin = 3
+GC for 3 < dmin <= 10
+XC for 10 < dmin <= 14
+XX for dmin > 14
+
+and we write it as G[2,10]C[3,14]
+
+A perl one-liner to convert UFX-extended to UFX (courtesy of Jarrod):
+cat whale.ufx.extended | perl -ane 'BEGIN {$t = 4;} ($m,$c) = @F; ($lc,$l1,$l2,$rc,$r1,$r2) = $c =~ /^(.)\[(\d+)\,(\d+)\](.)\[(\d+)\,(\d+)\]$/; if ($t <= $l1) { $lc = "F"; } elsif ($t > $l2) { $lc = "X";} if ($t <= $r1) { $rc = "F"; } elsif ($t > $r2) { $rc = "X";} print "$m\t$lc$rc\n";' > whale.k35.ufx
+
+

@@ -1,0 +1,1 @@
+/home/inisa/dibella_bsp/dataset/tmp3.fastq

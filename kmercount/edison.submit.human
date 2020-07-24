@@ -1,0 +1,12 @@
+#PBS -q debug
+#PBS -l mppwidth=960
+#PBS -l walltime=00:30:00
+#PBS -N my_job
+#PBS -e my_job.$PBS_JOBID.err
+#PBS -o my_job.$PBS_JOBID.out
+#PBS -V
+
+module load ipm
+
+cd /scratch3/scratchdirs/abuluc/human
+aprun -n 960 ./ufx humans.original 3
