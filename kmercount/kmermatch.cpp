@@ -289,7 +289,6 @@ size_t GPU_ParseNPack(vector<string> & seqs, vector<string> names, vector<string
 	int rd_offset=0;
 	for(size_t i=offset; i< nreads; ++i)
 	{
-
 		size_t found  = seqs[i].length();
 		// skip this sequence if the length is too short
 		if (seqs[i].length() <= KMER_LENGTH) {
@@ -300,6 +299,8 @@ size_t GPU_ParseNPack(vector<string> & seqs, vector<string> names, vector<string
 
 		strcpy(seqs_arr + rd_offset, seqs[i].c_str()); 
 		rd_offset += seqs[i].length();
+		strcpy(seqs_arr + rd_offset, "a");
+		rd_offset++;
 		// int nkmers = (seqs[i].length()-KMER_LENGTH+1);
 		// kmersprocessed += nkmers;
 		// kmersthisbatch += nkmers;
@@ -334,8 +335,9 @@ size_t GPU_ParseNPack(vector<string> & seqs, vector<string> names, vector<string
 		// }
 	}
 
-
+	if(rd_offset == 0) return nreads;
 	uint64_t *h_outgoing = getKmers_GPU(seqs_arr, KMER_LENGTH, nprocs);
+	free(seqs_arr);
 	if (pass == 2) { startReadIndex = readIndex; }
 /*
 #ifdef DEBUG
@@ -478,6 +480,7 @@ double Exchange(vector< vector<Kmer> > & outgoing, vector< vector< ReadId > > & 
 	DBG("totsend=%lld totrecv=%lld\n", (lld) totsend, (lld) totrecv);
 
 	growBuffer(scratch1, sizeof(uint8_t) * totsend); // will exit if totsend is negative
+
 	uint8_t * sendbuf = (uint8_t*) getStartBuffer(scratch1);
 	for(int i=0; i<nprocs; ++i)  {
 		size_t nkmers2send = outgoing[i].size();
@@ -981,7 +984,7 @@ KeyValue* pHashTable;
 
 void GPU_DealWithInMemoryData(vector<Kmer> & mykmers, int pass, struct bloom * bm, vector< ReadId > myreadids, vector< PosInRead > mypositions){
 
-
+	printf("\n\n batch  %d \n",  batch);
     if(batch == 0) 
     	pHashTable = create_hashtable_GPU();
     batch++;
@@ -1015,7 +1018,7 @@ void GPU_DealWithInMemoryData(vector<Kmer> & mykmers, int pass, struct bloom * b
     // cout << "\nGPU Hashtable size at batch : " << batch <<" - " 
     // << HTsize << ", Total pairs (corrctness chck) " << totalPairs << endl;
 
-    if(batch == 35)
+    if(batch == 2)
     	destroy_hashtable(pHashTable);
 
     // Summarize results
