@@ -1,5 +1,18 @@
-DEFS="-DKMERA_ONLY=1 -DMAX_NUM_READS_LIST=4;8;16" DEBUG=1 sh install.sh
-mpirun -n 1 build-dbg/bin/main-16-32 -k 17 -u 8 -i list_tmp1.txt -s kmermatch-17
-export CC=/usr/local/Cellar/gcc@8/8.4.0_1/bin/gcc-8
-export CXX=/usr/local/Cellar/gcc@8/8.4.0_1/bin/g++-8
-make -C build-dbg/ kmermatch-16-32
+ Build:
+
+ DEFS="-DKMERA_ONLY=1 -DMAX_NUM_READS_LIST=4;8;16" DEBUG=1 sh install.sh scripts/install-environments/summitgpu-env.sh 
+
+
+run:
+module swap xl gcc #/8.1.1
+module load cuda
+module load cmake/3.15.2
+
+CC=mpicc #gcc #$(which cc)
+CXX=mpic++ #g++ #$(which CC)
+
+cd $MEMBERWORK/bif115/
+
+bin=diBELLA-install-f70f24e-dbg/bin/main-16-32
+
+jsrun -n 1 -g 1 $bin -k 17 -u 8 -c 1 -i ~/meta/dibella_bsp/list_tmp1.txt -s kmermatch-17

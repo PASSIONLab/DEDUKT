@@ -27,7 +27,7 @@
 #include <functional>
 #include <tuple>
 #include <omp.h>
-#include "nvbio/basic/omp.h"
+//#include "nvbio/basic/omp.h"
 #include <mpi.h>
 #include <sys/stat.h>
 #include <sys/mman.h>

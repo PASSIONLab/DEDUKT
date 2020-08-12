@@ -5,14 +5,14 @@
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 
-#include "nvbio/basic/timer.h"
-#include "nvbio/basic/console.h"
-#include "nvbio/basic/bloom_filter.h"
-#include "nvbio/basic/numbers.h"
-#include "nvbio/basic/primitives.h"
-#include "nvbio/basic/vector.h"
-#include "nvbio/basic/cuda/ldg.h"
-#include "nvbio/basic/omp.h"
+// #include "nvbio/basic/timer.h"
+// #include "nvbio/basic/console.h"
+// #include "nvbio/basic/bloom_filter.h"
+// #include "nvbio/basic/numbers.h"
+// #include "nvbio/basic/primitives.h"
+// #include "nvbio/basic/vector.h"
+// #include "nvbio/basic/cuda/ldg.h"
+// #include "nvbio/basic/omp.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -22,7 +22,7 @@ inline cudaError_t checkCuda(cudaError_t result, int s){
 
   if (result != cudaSuccess) {
     fprintf(stderr, "CUDA Runtime Error in line : %s - %d\n", cudaGetErrorString(result), s);
-    assert(result == cudaSuccess);
+    // assert(result == cudaSuccess);
   }
   return result;
 }
@@ -52,7 +52,7 @@ __device__ keyType murmur3_64( uint64_t k )
 // Hash funs and variables for NVBIO Bloom Filter 
 static const uint32_t FILTER_K = 7;
 static const uint32_t ITEMS_PER_THREAD = 100;
-
+/*
 //To avoid conflicts of Hash functions between diBella and nvbio
 namespace BF_hash{
 
@@ -145,7 +145,7 @@ struct hash_functor2
     NVBIO_FORCEINLINE NVBIO_HOST_DEVICE
     uint64_t operator() (const uint64_t kmer) const { return BF_hash::hash2( kmer ); }
 };
-
+*/
 // Create a hash table. For linear probing, this is just an array of KeyValues
 KeyValue* create_hashtable_GPU() 
 {
@@ -163,13 +163,12 @@ KeyValue* create_hashtable_GPU()
     return hashtable;
 }
 
-typedef nvbio::bloom_filter<2,hash_functor1,hash_functor2,uint32_t*> bloom_filter_type;
+// typedef nvbio::bloom_filter<2,hash_functor1,hash_functor2,uint32_t*> bloom_filter_type;
 
 // Insert the key/values in kvs into the hashtable
 __global__ void gpu_hashtable_insert(KeyValue* hashtable, 
     const keyType* kvs, 
-    unsigned int numkvs,
-    bloom_filter_type filter)
+    unsigned int numkvs)
 {
     unsigned int threadid = blockIdx.x*blockDim.x + threadIdx.x;
    
@@ -202,14 +201,14 @@ __global__ void gpu_hashtable_insert(KeyValue* hashtable,
 
 // populate a nvbio bloom filter in parallel
 // template <typename bloom_filter_type, typename T>
-__global__ void populate_kernel(const uint32_t N, const uint32_t* keys, bloom_filter_type filter)
-{
-    const uint32_t i = threadIdx.x + blockIdx.x * blockDim.x;
-    if (i < N)
-    {
-        filter.insert( keys[i] );
-    }
-}
+// __global__ void populate_kernel(const uint32_t N, const uint32_t* keys, bloom_filter_type filter)
+// {
+//     const uint32_t i = threadIdx.x + blockIdx.x * blockDim.x;
+//     if (i < N)
+//     {
+//         filter.insert( keys[i] );
+//     }
+// }
 
 std::vector<KeyValue> insert_hashtable(KeyValue* pHashTable, const keyType* keys, uint32_t num_keys)
 {
@@ -242,19 +241,19 @@ std::vector<KeyValue> insert_hashtable(KeyValue* pHashTable, const keyType* keys
     ------------------------------*/
     // build a set of 1M random integers
     const uint32_t N = 1;//1000000;
-    nvbio::vector<nvbio::host_tag,uint32_t> h_vector( N );
+    // nvbio::vector<nvbio::host_tag,uint32_t> h_vector( N );
     // fill it up
-    for (uint32_t i = 0; i < N; ++i)
-        h_vector[i] = rand();
+    // for (uint32_t i = 0; i < N; ++i)
+    //     h_vector[i] = rand();
     // copy it to the device
-    nvbio::vector<nvbio::device_tag,uint32_t> d_vector = h_vector;
+    // nvbio::vector<nvbio::device_tag,uint32_t> d_vector = h_vector;
     // construct an empty Bloom filter
 
     const uint32_t filter_words = N;  // let's use 32-bits per input item;
                                     // NOTE: this is still a lot less than 1-bit for each
                                     // of the 4+ billion integers out there...
-    nvbio::vector<nvbio::device_tag,uint32_t> d_filter_storage( filter_words, 0u );
-    bloom_filter_type d_filter( filter_words * 32, plain_view( d_filter_storage ) );
+    // nvbio::vector<nvbio::device_tag,uint32_t> d_filter_storage( filter_words, 0u );
+    // bloom_filter_type d_filter( filter_words * 32, plain_view( d_filter_storage ) );
 
     int b = 128;
     int g= (N + (b - 1)) / b;
@@ -273,7 +272,7 @@ std::vector<KeyValue> insert_hashtable(KeyValue* pHashTable, const keyType* keys
 
     // Insert all the keys into the hash table
     int gridsize = ((uint32_t)num_keys + threadblocksize - 1) / threadblocksize;
-    gpu_hashtable_insert<<<gridsize, threadblocksize>>>(pHashTable, device_keys, (uint32_t)num_keys, d_filter);
+    gpu_hashtable_insert<<<gridsize, threadblocksize>>>(pHashTable, device_keys, (uint32_t)num_keys);
 
     cudaEventRecord(stop);
 
@@ -340,7 +339,7 @@ __global__ void gpu_parseKmerNFillupBuff(char *seq, char *kmers, int klen, unsig
             char s =  seq[i + k + laneId];
             int j = k % 32;
             int l = k/32;
-            assert(s != '\0');
+            // assert(s != '\0');
             size_t x = ((s) & 4) >> 1;
             longs |= ((x + ((x ^ (s & 2)) >>1)) << (2*(31-j))); //make it longs[] to support larger kmer
         }

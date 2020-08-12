@@ -62,37 +62,24 @@ FOREACH(HIPMER_KMER_LEN ${HIPMER_KMER_LENGTHS})
 	)
 ENDFOREACH()
 
+add_library(gpu_kmer STATIC
+	simple.cu 
+	linearprobing.cu
+ 	simple.cuh 
+ 	linearprobing.h 
+  )
 
+# Request that particles be built with -std=c++11
+# As this is a public compile feature anything that links to particles
+# will also build with -std=c++11
+target_compile_features(gpu_kmer PUBLIC )
 
-#IN:: cuda-kmermatch 
-
-# FILE(GLOB cuda_headers ${CMAKE_SOURCE_DIR}/kmercount/simple.cuh)
-# find_library(NVBIO_LIBRARY
-#     NAMES libnvbio.a
-#     HINTS "${HOME}/libraries/nvbio/build/nvbio"
-# )
-
-add_library(nvbio STATIC IMPORTED)
-set_target_properties(nvbio PROPERTIES
-    IMPORTED_LOCATION ${CMAKE_SOURCE_DIR}/kmercount/nvbio/build/nvbio/libnvbio.a
-)
-
-set(NAME cuda_objs)
-# get_kmer_defs(KMER_DEFS)
-create_library(
-# 	TYPE				OBJECT
-	TARGET_NAME			${NAME}
-	OUTPUT_NAME			${NAME}
-	SOURCES				linearprobing.cu
-	HEADERS				linearprobing.h 
-	INCLUDE_DIRECTORIES	${CMAKE_SOURCE_DIR}/kmercount ${CMAKE_SOURCE_DIR}/kmercount/nvbio/contrib/cub
-# 	DEFINITIONS			${KMER_DEFS}
-
-	LINK_LIBRARIES		${ZLIB_LIBRARIES} nvbio
-# 	CXXFLAGS			${MPI_CXX_COMPILE_FLAGS})
-	CUDAFLAGS	        -ccbin=${CMAKE_CXX_COMPILER} -Xcompiler -fopenmp -arch=sm_35 -maxrregcount=32 #TODO some of these flags shouldn't be hard coded here
-	PROPERTIES          COMPILE_LANGUAGE CUDA ${CUDA_PROPERTIES} ) 
-add_readid_defs(${NAME})
+# We need to explicitly state that we need all CUDA files in the particle
+# library to be built with -dc as the member functions could be called by
+# other libraries and executables
+set_target_properties( gpu_kmer
+                       PROPERTIES CUDA_SEPARABLE_COMPILATION ON
+                      )
 
 
 FOREACH(MAX_NUM_READS ${MAX_NUM_READS_LIST})
@@ -105,7 +92,7 @@ FOREACH(MAX_NUM_READS ${MAX_NUM_READS_LIST})
 			TYPE				OBJECT
 			TARGET_NAME			${NAME}
 			OUTPUT_NAME			${NAME}
-			SOURCES				readufx.cpp
+object			SOURCES				readufx.cpp
 			HEADERS				readufx.h
 			DEFINITIONS			${KMER_DEFS}
 			LINK_LIBRARIES		${ZLIB_LIBRARIES}
@@ -185,7 +172,7 @@ FOREACH(MAX_NUM_READS ${MAX_NUM_READS_LIST})
 			DEFINITIONS			${KMER_DEFS}
 			CXXFLAGS			${MPI_CXX_COMPILE_FLAGS} ${CMAKE_LINK_FLAGS} ${MPI_CXX_LINK_FLAGS}
 			OBJECT_LIBRARIES	common fqreader MURMURHASH readufx-${MAX_NUM_READS}-${HIPMER_KMER_LEN} ReadOverlap-${MAX_NUM_READS}-${HIPMER_KMER_LEN} LIBBLOOM-NOUPC MPIType KmerObjects-${HIPMER_KMER_LEN} kmermatch-${MAX_NUM_READS}-${HIPMER_KMER_LEN}-NOUPC
-			LINK_LIBRARIES		${MPI_CXX_LIBRARIES} ${ZLIB_LIBRARIES} ${RT_LIBRARIES} ${libc}  cuda_objs
+			LINK_LIBRARIES		${MPI_CXX_LIBRARIES} ${ZLIB_LIBRARIES} ${RT_LIBRARIES} ${libc} gpu_kmer  
 			INSTALL_DESTINATION ${CMAKE_INSTALL_PREFIX}/bin
 		)
 		add_readid_defs(${NAME})
@@ -200,7 +187,7 @@ FOREACH(MAX_NUM_READS ${MAX_NUM_READS_LIST})
 			DEFINITIONS			${KMER_DEFS} SINGLE_EXEC=1
 			CXXFLAGS			${MPI_CXX_COMPILE_FLAGS} ${CMAKE_LINK_FLAGS} ${MPI_CXX_LINK_FLAGS}
 #			OBJECT_LIBRARIES	common fqreader ReadOverlap-${MAX_NUM_READS}-${HIPMER_KMER_LEN} LIBBLOOM-NOUPC MPIType KmerObjects-${HIPMER_KMER_LEN} kmermatch-${MAX_NUM_READS}-${HIPMER_KMER_LEN}-NOUPC
-			LINK_LIBRARIES		${MPI_CXX_LIBRARIES} ${ZLIB_LIBRARIES} ${RT_LIBRARIES} ${libc} cuda_objs)
+			LINK_LIBRARIES		${MPI_CXX_LIBRARIES} ${ZLIB_LIBRARIES} ${RT_LIBRARIES} ${libc} gpu_kmer)
 		add_readid_defs(${NAME})
 	
 	ENDFOREACH() # HIPMER_KMER_LENGTHS
@@ -224,5 +211,5 @@ create_executable(
 	PROPERTIES			LANGUAGE C LINKER_LANGUAGE C LINK_FLAGS ${OpenMP_EXTRA_LINKER_FLAGS}
 	CFLAGS				${MPI_C_COMPILE_FLAGS} ${OpenMP_C_FLAGS} 
 	INCLUDE_DIRECTORIES ${PROJECT_SOURCE_DIR}
-	LINK_LIBRARIES		${ZLIB_LIBRARIES} ${RT_LIBRARIES} ${libc} ${MPI_C_LIBRARIES} 
+	LINK_LIBRARIES		${ZLIB_LIBRARIES} ${RT_LIBRARIES} ${libc} ${MPI_C_LIBRARIES} #gpu_kmer
 	INSTALL_DESTINATION ${CMAKE_INSTALL_PREFIX}/bin)
