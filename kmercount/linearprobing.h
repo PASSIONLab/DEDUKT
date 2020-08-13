@@ -38,9 +38,9 @@ struct KeyValue
 
 
 
-KeyValue* create_hashtable_GPU();
+KeyValue* create_hashtable_GPU(int rank);
 
-std::vector<KeyValue> insert_hashtable(KeyValue* hashtable, const keyType* kvs, uint32_t num_kvs);
+std::vector<KeyValue> insert_hashtable(KeyValue* hashtable, const keyType* kvs, uint32_t num_kvs, int rank);
 
 void lookup_hashtable(KeyValue* hashtable, KeyValue* kvs, uint32_t num_kvs);
 
@@ -48,6 +48,6 @@ void delete_hashtable(KeyValue* hashtable, const KeyValue* kvs, uint32_t num_kvs
 
 std::vector<KeyValue> iterate_hashtable(KeyValue* hashtable);
 
-void destroy_hashtable(KeyValue* hashtable);
+void destroy_hashtable(KeyValue* hashtable, int rank);
 
-uint64_t * getKmers_GPU( char *seq, int klen, int nproc);
+uint64_t * getKmers_GPU( char *seq, int klen, int nproc, int rank);

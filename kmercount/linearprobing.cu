@@ -147,9 +147,12 @@ struct hash_functor2
 };
 */
 // Create a hash table. For linear probing, this is just an array of KeyValues
-KeyValue* create_hashtable_GPU() 
+KeyValue* create_hashtable_GPU(int rank) 
 {
-    cudaSetDevice (2);
+    int count, devId;
+    cudaGetDeviceCount(&count);
+    int gpuID = rank % count;
+    cudaSetDevice(gpuID);
     // Allocate memory
     KeyValue* hashtable;
     cudaMalloc(&hashtable, sizeof(KeyValue) * kHashTableCapacity);
@@ -210,9 +213,16 @@ __global__ void gpu_hashtable_insert(KeyValue* hashtable,
 //     }
 // }
 
-std::vector<KeyValue> insert_hashtable(KeyValue* pHashTable, const keyType* keys, uint32_t num_keys)
+std::vector<KeyValue> insert_hashtable(KeyValue* pHashTable, const keyType* keys, uint32_t num_keys, int rank)
 {
-     cudaSetDevice (2);
+    // Map MPI ranks to GPUs
+    int count, devId;
+    cudaGetDeviceCount(&count);
+    int gpuID = rank % count;
+    cudaSetDevice(gpuID);
+    cudaGetDevice(&devId);
+    // printf("\n FROnProcs %d: rank %d mapped to %d\n", nproc, rank, devId);
+
     // Copy the keyvalues to the GPU
     // Create events for GPU timing
     cudaEvent_t start, stop;
@@ -356,10 +366,19 @@ __global__ void gpu_parseKmerNFillupBuff(char *seq, char *kmers, int klen, unsig
     }
 }
 
-uint64_t * getKmers_GPU(char *seq, int klen, int nproc){
+uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int rank){
 
     // printf("CHANGE\n");
-    nproc = 4;
+    int count, devId;
+        // Map MPI ranks to GPUs
+
+    cudaGetDeviceCount(&count);
+    int gpuID = rank % count;
+    cudaSetDevice(gpuID);
+    cudaGetDevice(&devId);
+    printf("\n nProcs %d: rank %d mapped to %d\n", nproc, rank, devId);
+
+    // nproc = 4;
     unsigned int seq_len = strlen(seq);
     unsigned int n_kmers =  seq_len - klen + 1;
     printf("nKMER with gaps %d\n", n_kmers );
@@ -412,7 +431,7 @@ uint64_t * getKmers_GPU(char *seq, int klen, int nproc){
         total_counter += owner_counter[i];
        printf(" %d", owner_counter[i]);
     }
-    printf(" \n Total: %d \n ", total_counter);
+    printf(", Total: %d \n ", total_counter);
     // cudaFree(d_kmers);
     cudaFree(d_outgoing);
     cudaFree(d_seq);
@@ -596,7 +615,7 @@ std::vector<KeyValue> iterate_hashtable(KeyValue* pHashTable)
 }
 
 // Free the memory of the hashtable
-void destroy_hashtable(KeyValue* pHashTable)
+void destroy_hashtable(KeyValue* pHashTable, int rank)
 {
     cudaFree(pHashTable);
 }
