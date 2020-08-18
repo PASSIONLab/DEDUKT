@@ -15,5 +15,4 @@ cd $MEMBERWORK/bif115/
 
 bin=diBELLA-install-f70f24e-dbg/bin/main-16-32
 
-jsrun -n 1 -g 1 $bin -k 17 -u 8 -c 1 -i ~/meta/dibella_bsp/list_tmp1.txt -s kmermatch-17
-jsrun --smpiargs=-gpu -n1 -c42 -g6 -a2 /gpfs/alpine/scratch/isratnisa/bif115/diBELLA-install-8aabad3-dbg/bin/main-16-32 -k 17 -u 8 -c 1 -i ~/meta/dibella_bsp/list_ecoliSample30x.txt -s kmermatch-17
+jsrun --smpiargs=-gpu -n1 -c42 -g6 -a2 $bin -k 17 -u 8 -c 1 -i ~/meta/dibella_bsp/list_ecoliSample30x.txt -s kmermatch-17

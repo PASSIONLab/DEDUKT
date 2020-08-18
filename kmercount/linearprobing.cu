@@ -18,7 +18,7 @@
 
 #define BIG_CONSTANT(x) (x)
 
-inline cudaError_t checkCuda(cudaError_t result, int s){
+cudaError_t checkCuda(cudaError_t result, int s){
 
   if (result != cudaSuccess) {
     fprintf(stderr, "CUDA Runtime Error in line : %s - %d\n", cudaGetErrorString(result), s);
@@ -366,7 +366,7 @@ __global__ void gpu_parseKmerNFillupBuff(char *seq, char *kmers, int klen, unsig
     }
 }
 
-uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int rank){
+uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int rank){
 
     // printf("CHANGE\n");
     int count, devId;
@@ -419,8 +419,8 @@ uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int rank){
 
 
     // // char *h_kmers = (char *) malloc ( n_kmers * klen * sizeof(char*));
-    uint64_t *h_outgoing ;//= (uint64_t *) malloc ( n_kmers * 2 * sizeof(uint64_t));
-    int * owner_counter =(int*) malloc (nproc * sizeof(int)) ;
+    // uint64_t *h_outgoing = (uint64_t *) malloc ( n_kmers * 2 * sizeof(uint64_t));
+
     // checkCuda (cudaMemcpy(h_outgoing, d_outgoing, n_kmers * 2 * sizeof(uint64_t) , cudaMemcpyDeviceToHost), __LINE__); 
     checkCuda (cudaMemcpy(owner_counter, d_owner_counter, nproc * sizeof(int) , cudaMemcpyDeviceToHost), __LINE__); 
    
@@ -436,7 +436,7 @@ uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int rank){
     cudaFree(d_outgoing);
     cudaFree(d_seq);
     cudaFree(d_owner_counter);
-    return h_outgoing;
+    return d_outgoing;
 }
 
 
@@ -613,6 +613,8 @@ std::vector<KeyValue> iterate_hashtable(KeyValue* pHashTable)
 
     return kvs;
 }
+
+
 
 // Free the memory of the hashtable
 void destroy_hashtable(KeyValue* pHashTable, int rank)

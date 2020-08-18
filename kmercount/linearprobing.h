@@ -36,7 +36,7 @@ struct KeyValue
 	
 // };
 
-
+cudaError_t checkCuda(cudaError_t result, int s);
 
 KeyValue* create_hashtable_GPU(int rank);
 
@@ -50,4 +50,4 @@ std::vector<KeyValue> iterate_hashtable(KeyValue* hashtable);
 
 void destroy_hashtable(KeyValue* hashtable, int rank);
 
-uint64_t * getKmers_GPU( char *seq, int klen, int nproc, int rank);
+uint64_t * getKmers_GPU( char *seq, int klen, int nproc, int *owner_counter, int rank);
