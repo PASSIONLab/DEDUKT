@@ -336,9 +336,14 @@ size_t GPU_ParseNPack(vector<string> & seqs, vector<string> names, vector<string
 		// 	break;
 		// }
 	}
+	owner_counter = (int*) malloc (nprocs * sizeof(int)) ;
+	memset(owner_counter, 0, nprocs * sizeof(int));
 	cout << "CPU nkmers this batch: " << nkmers_thisBatch << endl;
-	if(rd_offset == 0) return nreads;
-	owner_counter =(int*) malloc (nprocs * sizeof(int)) ;
+	if(rd_offset == 0) {
+		free(seqs_arr);
+		return nreads;
+	} 
+
 	d_outgoing = getKmers_GPU(seqs_arr, KMER_LENGTH, nprocs, owner_counter, myrank);
 	free(seqs_arr);
 	if (pass == 2) { startReadIndex = readIndex; }
@@ -550,7 +555,7 @@ double Exchange(vector< vector<Kmer> > & outgoing, vector< vector< ReadId > > & 
 		__FUNCTION__, exchange_iter, pass, global_mins[SND], global_maxs[SND], global_mins[RCV], global_maxs[RCV], global_min_time, global_max_time);
 	performance_report_time = MPI_Wtime()-performance_report_time;
 	/*************************************/
-	cout << "before mykmer size() " << mykmers.size() << endl;
+	
 	uint64_t nkmersrecvd = totrecv / bytesperentry;
 	for(uint64_t i= 0; i < nkmersrecvd; ++i) {
 		Kmer kk;
@@ -574,7 +579,6 @@ double Exchange(vector< vector<Kmer> > & outgoing, vector< vector< ReadId > > & 
 		}
 		*/
 	}
-	cout << "After mykmer size() " << mykmers.size() << endl;
 
 	DBG("DeleteAll: recvcount=%lld, sendct=%lld\n", (lld) recvcnt, (lld) sendcnt);
 	DeleteAll(rdispls, sdispls, recvcnt, sendcnt);
@@ -619,10 +623,13 @@ double GPU_Exchange(vector< vector<Kmer> > & outgoing, vector< vector< ReadId > 
 	int * rdispls = new int[nprocs];
 	int * recvcnt = new int[nprocs];
     
+
+
     int size = nprocs;
     for (int i=0; i < nprocs; i++) {
         sendcnt[i] = owner_counter[i];
     }
+    free(owner_counter);
     // checkCuda (cudaMemcpy(d_sendcounts, sendcnt, size * sizeof(int), cudaMemcpyHostToDevice), __LINE__); 
     // cudaErrorCheck( cudaMemcpy(d_recvcounts, recvcounts, size * sizeof(int), cudaMemcpyHostToDevice) );
 
@@ -637,6 +644,7 @@ double GPU_Exchange(vector< vector<Kmer> > & outgoing, vector< vector< ReadId > 
        
     int n_kmers = nkmers_thisBatch; 
     int p_buff_len = ((n_kmers * 2) + nprocs - 1)/nprocs;
+    // nkmers_thisBatch = 0;
 
     for (int i=0; i < nprocs; i++) {
         sdispls[i] = i * p_buff_len;
@@ -1363,10 +1371,9 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
                     offset = 0;
                 }
                 
-                double exch_t = 0;// Exchange(outgoing, readids, positions, extquals, extseqs, mykmers, myreadids, mypositions, /*myquals, myseqs,*/ exchangeAndCountPass, scratch1, scratch2); // outgoing arrays will be all empty, shouldn't crush
+                double exch_t = 0;//Exchange(outgoing, readids, positions, extquals, extseqs, mykmers, myreadids, mypositions, /*myquals, myseqs,*/ exchangeAndCountPass, scratch1, scratch2); // outgoing arrays will be all empty, shouldn't crush
 
 				GPU_Exchange(outgoing, readids, positions, extquals, extseqs, mykmers_GPU, myreadids, mypositions, /*myquals, myseqs,*/ exchangeAndCountPass, scratch1, scratch2); // outgoing arrays will be all empty, shouldn't crush
-
 
 #ifdef DEBUG
                if(myrank==0) cout << "Finished Exchange pass " << exchangeAndCountPass << endl;
@@ -1385,7 +1392,7 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
                 double t_HTcreate = MPI_Wtime();
                 // DealWithInMemoryData(mykmers, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
 // #ifdef GPU
-                GPU_DealWithInMemoryData(mykmers_GPU, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
+                // GPU_DealWithInMemoryData(mykmers_GPU, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
 // #endif
                 t_allbtch_HTcreate += MPI_Wtime() - t_HTcreate;
                 cout << "CPU HTtime: " << t_allbtch_HTcreate << endl;

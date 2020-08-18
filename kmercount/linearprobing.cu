@@ -433,7 +433,7 @@ uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int 
     }
     printf(", Total: %d \n ", total_counter);
     // cudaFree(d_kmers);
-    cudaFree(d_outgoing);
+    // cudaFree(d_outgoing);
     cudaFree(d_seq);
     cudaFree(d_owner_counter);
     return d_outgoing;
