@@ -282,7 +282,7 @@ size_t GPU_ParseNPack(vector<string> & seqs, vector<string> names, vector<string
     DBG("ParseNPack(seqs %lld, qals %lld, out %lld, extq %lld, exts %lld, pass %d, offset %lld)\n", (lld) seqs.size(), (lld) quals.size(), (lld) outgoing.size(), (lld) extquals.size(), (lld) extseqs.size(), pass, (lld) offset);
 
     ReadId readIndex = startReadIndex;
-
+    nkmers_thisBatch = 0;
     uint64_t all_seq_size = 0;
     for(size_t i=offset; i< nreads; ++i)
     	all_seq_size += seqs[i].length();
@@ -1383,14 +1383,15 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
                 		ASSERT( mypositions.size() == 0,"" );
                 }
                 double t_HTcreate = MPI_Wtime();
-                DealWithInMemoryData(mykmers, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
+                // DealWithInMemoryData(mykmers, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
 // #ifdef GPU
-                GPU_DealWithInMemoryData(mykmers, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
+                GPU_DealWithInMemoryData(mykmers_GPU, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
 // #endif
                 t_allbtch_HTcreate += MPI_Wtime() - t_HTcreate;
                 cout << "CPU HTtime: " << t_allbtch_HTcreate << endl;
 
                 moreToExchange = offset < seqs.size(); // TODO make sure this isn't problematic in long read version
+                mykmers_GPU.clear();
                 mykmers.clear();
                 myreadids.clear();
                 mypositions.clear();
