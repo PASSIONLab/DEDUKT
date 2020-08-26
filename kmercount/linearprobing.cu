@@ -178,7 +178,7 @@ __global__ void gpu_hashtable_insert(KeyValue* hashtable,
     if (threadid < numkvs)
     {
         keyType new_key = kvs[threadid];//.key;
-        keyType slot = murmur3_32(new_key);
+        keyType slot = murmur3_64(new_key);
         // if(filter.has(new_key))
         {
 
@@ -235,8 +235,8 @@ std::vector<KeyValue> insert_hashtable(KeyValue* pHashTable, const keyType* keys
     keyType* device_keys;
     cudaEventRecord(start);
     
-    cudaMalloc(&device_keys, sizeof(keyType) * num_keys); 
-    cudaMemcpy(device_keys, keys, sizeof(keyType) * num_keys, cudaMemcpyHostToDevice);
+    checkCuda( cudaMalloc(&device_keys, sizeof(keyType) * num_keys), __LINE__); 
+    checkCuda( cudaMemcpy(device_keys, keys, sizeof(keyType) * num_keys, cudaMemcpyHostToDevice), __LINE__); 
     
     // cudaEventRecord(stop);
     // cudaEventSynchronize(stop);
@@ -376,13 +376,11 @@ uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int 
     int gpuID = rank % count;
     cudaSetDevice(gpuID);
     cudaGetDevice(&devId);
-    printf("\n nProcs %d: rank %d mapped to %d\n", nproc, rank, devId);
+    // printf("\n nProcs %d: rank %d mapped to %d\n", nproc, rank, devId);
 
     // nproc = 4;
     unsigned int seq_len = strlen(seq);
     unsigned int n_kmers =  seq_len - klen + 1;
-    printf("nKMER with gaps %d\n", n_kmers );
-    // printf("nkmers %u \n", n_kmers );
 
     char *d_kmers, *d_seq;
     uint64_t *d_outgoing, *d_outOverflowBuff;
@@ -397,7 +395,8 @@ uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int 
     checkCuda (cudaMalloc(&d_outgoing, n_kmers*2 * sizeof(uint64_t*)), __LINE__);  // giving 2x space to each node 
     checkCuda (cudaMalloc(&d_seq, seq_len * sizeof(char*)), __LINE__);
     checkCuda (cudaMemcpy(d_seq, seq, seq_len * sizeof(char*) , cudaMemcpyHostToDevice), __LINE__);
-    
+    cudaMemset(d_outgoing,  0, n_kmers*2 * sizeof(uint64_t));
+
     checkCuda (cudaMalloc(&d_owner_counter, nproc * sizeof(int)), __LINE__);
     cudaMemset(d_owner_counter,  0, sizeof(int) * nproc);
 
@@ -425,13 +424,13 @@ uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int 
     checkCuda (cudaMemcpy(owner_counter, d_owner_counter, nproc * sizeof(int) , cudaMemcpyDeviceToHost), __LINE__); 
    
     uint64_t total_counter = 0;
-    printf("\nFrom GPU: "); 
+    printf("GPU ParseNPack: rank %d", rank); 
     for (int i = 0; i < nproc; ++i)
     {
         total_counter += owner_counter[i];
-       printf(" %d", owner_counter[i]);
+       // printf(" %d: %d,", i, owner_counter[i]);
     }
-    printf(", Total: %d \n ", total_counter);
+    printf(", Total: %d \n", total_counter);
     // cudaFree(d_kmers);
     // cudaFree(d_outgoing);
     cudaFree(d_seq);

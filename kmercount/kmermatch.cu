@@ -267,6 +267,89 @@ double GPUtime=0;
 uint64_t *d_outgoing;
 int * owner_counter; 
 int nkmers_thisBatch = 0;
+int nkmers_processed = 0;
+int endOffset = 0;
+
+size_t ParseNPack(vector<string> & seqs, vector<string> names, vector<string> & quals, vector< vector<Kmer> > & outgoing, vector< vector<ReadId> > & readids,
+		vector< vector<PosInRead> > & positions, ReadId & startReadIndex, vector<vector<array<char,2>>> & extquals, vector<vector<array<char,2>>> & extseqs,
+		std::unordered_map<ReadId, std::string>& readNameMap, int pass, size_t offset)
+{
+	        	// test_cuda();
+	MPI_Pcontrol(1,"ParseNPack");
+	size_t nreads = seqs.size();
+	size_t nskipped = 0;
+	size_t maxsending = 0, kmersthisbatch = 0;
+	size_t bytesperkmer = Kmer::numBytes();
+	size_t bytesperentry = bytesperkmer + 4;
+	size_t memoryThreshold = (MAX_ALLTOALL_MEM / nprocs) * 2; // 2x any single rank
+    DBG("ParseNPack(seqs %lld, qals %lld, out %lld, extq %lld, exts %lld, pass %d, offset %lld)\n", (lld) seqs.size(), (lld) quals.size(), (lld) outgoing.size(), (lld) extquals.size(), (lld) extseqs.size(), pass, (lld) offset);
+
+    ReadId readIndex = startReadIndex;
+	for(size_t i=offset; i< nreads; ++i)
+	{
+		size_t found  = seqs[i].length();
+		// skip this sequence if the length is too short
+		if (seqs[i].length() <= KMER_LENGTH) {
+			//cerr << "seq is too short (" << seqs[i].length() << " < " << KMER_LENGTH << " : " << seqs[i] << endl;
+			nskipped++;
+			continue;
+		}
+		int nkmers = (seqs[i].length()-KMER_LENGTH+1);
+		kmersprocessed += nkmers;
+		kmersthisbatch += nkmers;
+        
+		std::vector<Kmer> kmers = Kmer::getKmers(seqs[i]); // calculate all the kmers 
+
+		
+		// char * kmers1 = getKmers_test(seqs[i]);
+// #ifdef GPU	
+		// char * seqs_arr = (char*)malloc (seqs[i].length() * sizeof(char*));
+		// strcpy(seqs_arr, seqs[i].c_str()); 
+		// // char * kmers1_gpu = getKmers_GPU(seqs_arr, KMER_LENGTH);
+		// // uint64_t * outgoing_gpu = 
+		// getKmers_GPU(seqs_arr, KMER_LENGTH, nprocs);
+// #endif	
+		ASSERT(kmers.size() == nkmers,"");
+		size_t Nfound = seqs[i].find('N');
+		int matched = 0, nonmatched = 0;
+		for(size_t j=0; j< nkmers; ++j)
+		{
+			// while (Nfound!=std::string::npos && Nfound < j) Nfound=seqs[i].find('N', Nfound+1);
+ 		// 	if (Nfound!=std::string::npos && Nfound < j+KMER_LENGTH) continue;	// if there is an 'N', toss it
+			ASSERT(kmers[j] == Kmer(seqs[i].c_str() + j),"");
+
+			// if(j < 5){
+			// // 	for (int ii = 0; ii < KMER_LENGTH; ++ii)
+			// // 		cout << kmers1_gpu[j * KMER_LENGTH +ii];
+			// 	cout << " : " << kmers[j].getArray().at(0) << endl;
+			// }
+
+			size_t sending = PackEndsKmer(seqs[i], quals[i], j, kmers[j], readIndex, j, outgoing,
+					readids, positions, extquals, extseqs, pass, found, KMER_LENGTH);
+			if (sending > maxsending) maxsending = sending;
+		}
+		if (pass == 2) { StoreReadName(readIndex, names[i], readNameMap); }
+		readIndex++; // always start with next read index whether exiting or continuing the loop
+		if (maxsending * bytesperentry >= memoryThreshold || (kmersthisbatch + seqs[i].length()) * bytesperentry >= MAX_ALLTOALL_MEM) { 
+			nreads = i+1; // start with next read
+			if (pass==2) { startReadIndex = readIndex; }
+			break;
+		}
+	}
+	endOffset = nreads;
+
+	cout << "CPU parseNPack: kmers this batch: " << kmersthisbatch << ", total: " <<  kmersprocessed << endl;
+	if (pass == 2) { startReadIndex = readIndex; }
+/*
+#ifdef DEBUG
+    assert(startReadIndex > 0);
+#endif
+*/
+	LOGF("ParseNPack got through %lld reads (of %lld) and skipped %lld reads, total %lld kmers\n", (lld) nreads, (lld) seqs.size(), (lld) nskipped, (lld) kmersthisbatch);
+	MPI_Pcontrol(-1,"ParseNPack");
+	return nreads;
+}
+
 size_t GPU_ParseNPack(vector<string> & seqs, vector<string> names, vector<string> & quals, vector< vector<Kmer> > & outgoing, vector< vector<ReadId> > & readids,
 		vector< vector<PosInRead> > & positions, ReadId & startReadIndex, vector<vector<array<char,2>>> & extquals, vector<vector<array<char,2>>> & extseqs,
 		std::unordered_map<ReadId, std::string>& readNameMap, int pass, size_t offset)
@@ -288,7 +371,7 @@ size_t GPU_ParseNPack(vector<string> & seqs, vector<string> names, vector<string
     	all_seq_size += seqs[i].length();
     char *seqs_arr = (char*)malloc (all_seq_size * sizeof(char*));
 	int rd_offset=0;
-	for(size_t i=offset; i< nreads; ++i)
+	for(size_t i=offset; i < endOffset && i < nreads; ++i)
 	{
 		size_t found  = seqs[i].length();
 		// skip this sequence if the length is too short
@@ -338,7 +421,6 @@ size_t GPU_ParseNPack(vector<string> & seqs, vector<string> names, vector<string
 	}
 	owner_counter = (int*) malloc (nprocs * sizeof(int)) ;
 	memset(owner_counter, 0, nprocs * sizeof(int));
-	cout << "CPU nkmers this batch: " << nkmers_thisBatch << endl;
 	if(rd_offset == 0) {
 		free(seqs_arr);
 		return nreads;
@@ -346,84 +428,12 @@ size_t GPU_ParseNPack(vector<string> & seqs, vector<string> names, vector<string
 
 	d_outgoing = getKmers_GPU(seqs_arr, KMER_LENGTH, nprocs, owner_counter, myrank);
 	free(seqs_arr);
+	// free(owner_counter);
+	nkmers_processed += nkmers_thisBatch;
+	cout << "GPU parseNPack: kmers this batch: " << nkmers_thisBatch << ", total: " << nkmers_processed << endl;
+	
 	if (pass == 2) { startReadIndex = readIndex; }
-/*
-#ifdef DEBUG
-    assert(startReadIndex > 0);
-#endif
-*/
-	LOGF("ParseNPack got through %lld reads (of %lld) and skipped %lld reads, total %lld kmers\n", (lld) nreads, (lld) seqs.size(), (lld) nskipped, (lld) kmersthisbatch);
-	MPI_Pcontrol(-1,"ParseNPack");
-	return nreads;
-}
 
-size_t ParseNPack(vector<string> & seqs, vector<string> names, vector<string> & quals, vector< vector<Kmer> > & outgoing, vector< vector<ReadId> > & readids,
-		vector< vector<PosInRead> > & positions, ReadId & startReadIndex, vector<vector<array<char,2>>> & extquals, vector<vector<array<char,2>>> & extseqs,
-		std::unordered_map<ReadId, std::string>& readNameMap, int pass, size_t offset)
-{
-	        	// test_cuda();
-	MPI_Pcontrol(1,"ParseNPack");
-	size_t nreads = seqs.size();
-	size_t nskipped = 0;
-	size_t maxsending = 0, kmersthisbatch = 0;
-	size_t bytesperkmer = Kmer::numBytes();
-	size_t bytesperentry = bytesperkmer + 4;
-	size_t memoryThreshold = (MAX_ALLTOALL_MEM / nprocs) * 2; // 2x any single rank
-    DBG("ParseNPack(seqs %lld, qals %lld, out %lld, extq %lld, exts %lld, pass %d, offset %lld)\n", (lld) seqs.size(), (lld) quals.size(), (lld) outgoing.size(), (lld) extquals.size(), (lld) extseqs.size(), pass, (lld) offset);
-
-    ReadId readIndex = startReadIndex;
-	for(size_t i=offset; i< nreads; ++i)
-	{
-		size_t found  = seqs[i].length();
-		// skip this sequence if the length is too short
-		if (seqs[i].length() <= KMER_LENGTH) {
-			//cerr << "seq is too short (" << seqs[i].length() << " < " << KMER_LENGTH << " : " << seqs[i] << endl;
-			nskipped++;
-			continue;
-		}
-		int nkmers = (seqs[i].length()-KMER_LENGTH+1);
-		kmersprocessed += nkmers;
-		kmersthisbatch += nkmers;
-        
-		std::vector<Kmer> kmers = Kmer::getKmers(seqs[i]); // calculate all the kmers 
-
-		
-		// char * kmers1 = getKmers_test(seqs[i]);
-// #ifdef GPU	
-		// char * seqs_arr = (char*)malloc (seqs[i].length() * sizeof(char*));
-		// strcpy(seqs_arr, seqs[i].c_str()); 
-		// // char * kmers1_gpu = getKmers_GPU(seqs_arr, KMER_LENGTH);
-		// // uint64_t * outgoing_gpu = 
-		// getKmers_GPU(seqs_arr, KMER_LENGTH, nprocs);
-// #endif	
-		ASSERT(kmers.size() == nkmers,"");
-		size_t Nfound = seqs[i].find('N');
-		int matched = 0, nonmatched = 0;
-		for(size_t j=0; j< nkmers; ++j)
-		{
-			while (Nfound!=std::string::npos && Nfound < j) Nfound=seqs[i].find('N', Nfound+1);
- 			if (Nfound!=std::string::npos && Nfound < j+KMER_LENGTH) continue;	// if there is an 'N', toss it
-			ASSERT(kmers[j] == Kmer(seqs[i].c_str() + j),"");
-
-			// if(j < 5){
-			// // 	for (int ii = 0; ii < KMER_LENGTH; ++ii)
-			// // 		cout << kmers1_gpu[j * KMER_LENGTH +ii];
-			// 	cout << " : " << kmers[j].getArray().at(0) << endl;
-			// }
-
-			size_t sending = PackEndsKmer(seqs[i], quals[i], j, kmers[j], readIndex, j, outgoing,
-					readids, positions, extquals, extseqs, pass, found, KMER_LENGTH);
-			if (sending > maxsending) maxsending = sending;
-		}
-		if (pass == 2) { StoreReadName(readIndex, names[i], readNameMap); }
-		readIndex++; // always start with next read index whether exiting or continuing the loop
-		if (maxsending * bytesperentry >= memoryThreshold || (kmersthisbatch + seqs[i].length()) * bytesperentry >= MAX_ALLTOALL_MEM) { 
-			nreads = i+1; // start with next read
-			if (pass==2) { startReadIndex = readIndex; }
-			break;
-		}
-	}
-	if (pass == 2) { startReadIndex = readIndex; }
 /*
 #ifdef DEBUG
     assert(startReadIndex > 0);
@@ -524,9 +534,11 @@ double Exchange(vector< vector<Kmer> > & outgoing, vector< vector< ReadId > > & 
 
 	growBuffer(scratch2, sizeof(uint8_t) * totrecv);
 	uint8_t * recvbuf = (uint8_t*) getStartBuffer(scratch2);
- 	for (int i=0; i < nprocs; i++) 
-		printf("CPU COMM: rank %d: %d %d %d %d \n", myrank, sendcnt[i], sdispls[i], recvcnt[i], rdispls[i] );
-
+	int total_count = 0;
+ 	for (int i=0; i < nprocs; i++) {
+ 		total_count += sendcnt[i]/8;
+		printf("CPU COMM: rank %d: %d total: %d\n ", myrank, sendcnt[i]/8, total_count);
+ 	}
 
 	double exch_time = 0.0 - MPI_Wtime();
 	double exch_time1 = MPI_Wtime();
@@ -579,7 +591,7 @@ double Exchange(vector< vector<Kmer> > & outgoing, vector< vector< ReadId > > & 
 		}
 		*/
 	}
-
+    
 	DBG("DeleteAll: recvcount=%lld, sendct=%lld\n", (lld) recvcnt, (lld) sendcnt);
 	DeleteAll(rdispls, sdispls, recvcnt, sendcnt);
 
@@ -592,10 +604,9 @@ double Exchange(vector< vector<Kmer> > & outgoing, vector< vector< ReadId > > & 
 
 
 double GPU_Exchange(vector< vector<Kmer> > & outgoing, vector< vector< ReadId > > & readids, vector< vector< PosInRead > > & positions, vector<vector<array<char,2>>> & extquals, vector<vector<array<char,2>>> & extseqs,
-              vector<Kmer> & mykmers, vector< ReadId > & myreadids, vector< PosInRead > & mypositions, /*vector<array<char,2>> & myquals, vector<array<char,2>> & myseqs,*/ int pass, Buffer scratch1, Buffer scratch2)
+              vector<keyType> & mykmers_GPU, vector< ReadId > & myreadids, vector< PosInRead > & mypositions, /*vector<array<char,2>> & myquals, vector<array<char,2>> & myseqs,*/ int pass, Buffer scratch1, Buffer scratch2)
 {
 	int count;
-	cout <<  "sarting exchange " << endl;
 	cudaGetDeviceCount(&count);
 	MPI_Pcontrol(1,"Exchange");
 	double tot_exch_time = MPI_Wtime();
@@ -623,8 +634,6 @@ double GPU_Exchange(vector< vector<Kmer> > & outgoing, vector< vector< ReadId > 
 	int * rdispls = new int[nprocs];
 	int * recvcnt = new int[nprocs];
     
-
-
     int size = nprocs;
     for (int i=0; i < nprocs; i++) {
         sendcnt[i] = owner_counter[i];
@@ -649,18 +658,25 @@ double GPU_Exchange(vector< vector<Kmer> > & outgoing, vector< vector< ReadId > 
     for (int i=0; i < nprocs; i++) {
         sdispls[i] = i * p_buff_len;
         rdispls[i] = i * p_buff_len;
-        printf("GPU COMM: rank %d: %d %d %d %d \n", myrank, sendcnt[i], sdispls[i], recvcnt[i], rdispls[i] );
+        // printf("GPU COMM: rank %d: %d %d %d %d \n", myrank, sendcnt[i], sdispls[i], recvcnt[i], rdispls[i] );
     }
     int *d_recvbuf;
-    checkCuda (cudaMalloc(&d_recvbuf, n_kmers * 2 * sizeof(uint64_t*)), __LINE__);
+    
+
+    // checkCuda (cudaMalloc(&d_recvbuf, n_kmers * 2 * sizeof(uint64_t*)), __LINE__);
+    uint64_t* recvbuf = (uint64_t*) malloc(n_kmers * 2 * sizeof(uint64_t)); 
 	double exch_time = MPI_Wtime();
 
 	double exch_time1 = MPI_Wtime();
-	// CHECK_MPI( MPI_Alltoallv(sendbuf, sendcnt, sdispls, MPI_BYTE, recvbuf, recvcnt, rdispls, MPI_BYTE, MPI_COMM_WORLD) );
+	//CPU comm
+	uint64_t* sendbuf = (uint64_t*) malloc(n_kmers * 2 * sizeof(uint64_t)); 
+    checkCuda (cudaMemcpy(sendbuf, d_outgoing, n_kmers * 2 * sizeof(uint64_t), cudaMemcpyDeviceToHost), __LINE__); 
+
+	CHECK_MPI( MPI_Alltoallv(sendbuf, sendcnt, sdispls, MPI_BYTE, recvbuf, recvcnt, rdispls, MPI_BYTE, MPI_COMM_WORLD) );
 	
-	CHECK_MPI( MPI_Alltoallv(d_outgoing, sendcnt, sdispls, MPI_LONG, d_recvbuf, recvcnt, rdispls, MPI_LONG, MPI_COMM_WORLD) );
-	
-	cout << "GPU direct alltoallv(): " <<  MPI_Wtime() - exch_time1 << endl;
+	// CHECK_MPI( MPI_Alltoallv(d_outgoing, sendcnt, sdispls, MPI_LONG, d_recvbuf, recvcnt, rdispls, MPI_LONG, MPI_COMM_WORLD) );
+	cout << "CPU alltoallv() + cudaMemcpy(future): " <<  MPI_Wtime() - exch_time1 << endl;
+	// cout << "GPU direct alltoallv(): " <<  MPI_Wtime() - exch_time1 << endl;
 
 	// /******* Performance reporting *******/
 	// performance_report_time = MPI_Wtime();
@@ -683,31 +699,32 @@ double GPU_Exchange(vector< vector<Kmer> > & outgoing, vector< vector< ReadId > 
 	// 	__FUNCTION__, exchange_iter, pass, global_mins[SND], global_maxs[SND], global_mins[RCV], global_maxs[RCV], global_min_time, global_max_time);
 	// performance_report_time = MPI_Wtime()-performance_report_time;
 	/*************************************/
-    
-	uint64_t nkmersrecvd = totrecv;// / bytesperentry;
-	cout << "I have Received rank " << myrank << ": " << totrecv << endl; 
-	for(uint64_t i= 0; i < nkmersrecvd; ++i) {
-		Kmer kk;
-		// kk.copyDataFrom(recvbuf + (i * bytesperentry));	
-		mykmers.push_back(kk);
 
-		// if (pass == 2) {
-		// 	ReadId *ptr = (ReadId*) (recvbuf + (i * bytesperentry) + bytesperkmer);
-		// 	ASSERT(ptr[0] > 0,"");
-		// 	myreadids.push_back(ptr[0]);
-		// 	PosInRead *posPtr = (PosInRead*) (recvbuf + (i * bytesperentry) + bytesperkmer + sizeof(ReadId));
-		// 	mypositions.push_back(posPtr[0]);
-		// }
-		/* not exchanging extensions in longread version
-		char *ptr = ((char*) recvbuf) + (i * bytesperentry) + bytesperkmer;
-		if (pass == 2) {
-			array<char,2> qualexts = { ptr[0], ptr[1] };
-			array<char,2> seqexts = { ptr[2], ptr[3] };
-			myquals.push_back(qualexts);
-			myseqs.push_back(seqexts);
+    
+   
+    // checkCuda (cudaMemcpy(recvbuf, d_recvbuf, n_kmers * 2 * sizeof(uint64_t), cudaMemcpyDeviceToHost), __LINE__); 
+
+	uint64_t nkmersrecvd = totrecv;// / bytesperentry;
+	
+	// for(uint64_t i= 0; i < n_kmers * 2 ; ++i) {
+	// 	if(recvbuf[i] > 0)
+	// 		mykmers.push_back(recvbuf[i]);
+	// }
+
+	for(uint64_t i= 0; i < nprocs ; ++i) {
+		for(uint64_t j= 0; j <  recvcnt[i] ; ++j){
+
+			// if (j < 3 || j > recvcnt[i] - 5)
+			// 	cout << j << " what in it " << recvbuf[i * p_buff_len + j] << endl;
+
+	
+			mykmers_GPU.push_back(recvbuf[i * p_buff_len + j]);
 		}
-		*/
 	}
+	free(recvbuf);
+	cudaFree(d_outgoing);
+	// cudaFree(d_recvbuf);
+	cout << "rank "<< myrank << " received #kmers: " <<  mykmers_GPU.size() << ", should receive " << totrecv  << endl; 
 
 	DBG("DeleteAll: recvcount=%lld, sendct=%lld\n", (lld) recvcnt, (lld) sendcnt);
 	DeleteAll(rdispls, sdispls, recvcnt, sendcnt);
@@ -1105,40 +1122,50 @@ std::vector<keyType> generate_random_keyvalues(std::mt19937& rnd, uint32_t numkv
     return kvs;
 }
 
-std::vector<keyType> populate_GPUarray(vector<Kmer> & mykmers){
+std::vector<keyType> populate_GPUarray(vector<Kmer> & mykmers_GPU){
 
-	std::vector<keyType> kvs (mykmers.size());
+	std::vector<keyType> kvs (mykmers_GPU.size());
 
-    for (uint32_t i = 0; i < mykmers.size(); i++)
+    for (uint32_t i = 0; i < mykmers_GPU.size(); i++)
     {
-    	Kmer kmer = mykmers[i];
+    	Kmer kmer = mykmers_GPU[i];
         keyType key = kmer.getArray().at(0);
         // uint32_t val = 0;//get<2>(kmer.second); //dis(rnd);
-        kvs[i] = key;//KeyValue{key, val};
-        // printf("kmer from CPU: %lu \n", key);
+        kvs[i] = key;
+
+    }
+    return kvs;
+}
+
+std::vector<keyType> populate_GPUarray(vector<keyType> & mykmers_GPU){
+
+	std::vector<keyType> kvs (mykmers_GPU.size());
+
+    for (uint32_t i = 0; i < mykmers_GPU.size(); i++)
+    {
+        kvs[i] = mykmers_GPU[i];// key;//KeyValue{key, val};
+        // if(i<2) cout << mykmers_GPU[i] << " ";
     }
     return kvs;
 }
 
 int64_t rsrv = 0; //TODO:: make it local
-int batch = 0;
+int batch = -1;
 KeyValue* pHashTable;
 
-void GPU_DealWithInMemoryData(vector<Kmer> & mykmers, int pass, struct bloom * bm, vector< ReadId > myreadids, vector< PosInRead > mypositions){
+void GPU_DealWithInMemoryData(vector<keyType> & mykmers_GPU, int pass, struct bloom * bm, vector< ReadId > myreadids, vector< PosInRead > mypositions){
 
-	printf("\n\n batch  %d \n",  batch);
     if(batch == 0) 
     	pHashTable = create_hashtable_GPU(myrank);
-    batch++;
 
-    // cout << "#kmers: " << mykmers.size() << " " << kHashTableCapacity << " " << endl;
-
-    std::vector<keyType> insert_kvs = populate_GPUarray(mykmers); 
+    std::vector<keyType> insert_kvs = populate_GPUarray(mykmers_GPU); 
+    cout << "kvs size " << insert_kvs.size() << endl;
     // std::vector<keyType> insert_kvs = generate_random_keyvalues(rnd, kNumKeyValues);
     
     // Insert items into the hash table
     const uint32_t num_insert_batches = 1;
     uint32_t num_inserts_per_batch = (uint32_t)insert_kvs.size() / num_insert_batches;
+
     // /cout << "#Key-value pairs: " << num_inserts_per_batch << endl;
     
     int i = 0;
@@ -1146,22 +1173,22 @@ void GPU_DealWithInMemoryData(vector<Kmer> & mykmers, int pass, struct bloom * b
     // {
     std::vector<KeyValue> hosthash = insert_hashtable(pHashTable, insert_kvs.data() + i * num_inserts_per_batch, num_inserts_per_batch, myrank);
     // }
-
-    // uint64_t HTsize = 0, totalPairs= 0;
-    // cout << "printing HT" << endl;
-    // for (int i = 0; i < kHashTableCapacity; ++i)
-    // {
-    // 	if (hosthash[i].value > 1 && hosthash[i].value < 8) { //kEmpty 
-    //     	HTsize++;
-    //     	totalPairs += hosthash[i].value;
-    // 	}
-    // }
-
-    // cout << "\nGPU Hashtable size at batch : " << batch <<" - " 
-    // << HTsize << ", Total pairs (corrctness chck) " << totalPairs << endl;
-
-    if(batch == 35){
+    insert_kvs.clear();
+   	uint64_t HTsize = 0, totalPairs= 0;
+    
+    for (int i = 0; i < kHashTableCapacity; ++i)
+    {
+    	// if (hosthash[i].value > 1 && hosthash[i].value < 8) { //kEmpty 
+   		if (hosthash[i].value > 0) { //kEmpty  		
+        	HTsize++;
+        	totalPairs += hosthash[i].value;
+    	}
+    }
+    cout << "\nGPU Hashtable size at batch : " << batch <<" - " 
+	<< HTsize << ", Total pairs (corrctness chck) " << totalPairs << endl;
+    if(batch == 34){
     	printf("HARDCODED for ECOLISAMPLE30X\n");
+
     	destroy_hashtable(pHashTable, myrank);
     }
 
@@ -1238,6 +1265,7 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
     struct bloom * bm = NULL;
     
     int exchangeAndCountPass = pass;
+
     
     Buffer scratch1 = initBuffer(MAX_ALLTOALL_MEM);
     Buffer scratch2 = initBuffer(MAX_ALLTOALL_MEM);
@@ -1290,7 +1318,7 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
         vector< vector< PosInRead> > positions(nprocs);
             
         vector<Kmer> mykmers;
-        vector<Kmer> mykmers_GPU;
+        vector<keyType> kmers_GPU;
         vector<array<char,2>> myquals;
         vector<array<char,2>> myseqs;
         vector< ReadId > myreadids;
@@ -1347,22 +1375,22 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
             size_t offset = 0;
             do { // extract kmers and counts from read sequences (seqs)
                 DBG("Starting Exchange - ParseNPack %lld (%lld)\n", (lld) offset, (lld) seqs.size());
-
+				batch++; 
+				if(myrank == 0) printf("\n\n**** Starting batch:  %d\n",  batch); 
                 int tmp_offset = offset;
-                double gpu_exch_start_t = MPI_Wtime();
-                GPU_ParseNPack(seqs, names, quals, outgoing, readids, positions, readIndex, extquals, extseqs, readNameMap, exchangeAndCountPass, tmp_offset);    // no-op if seqs.size() == 0
-                double gpu_pack_t = MPI_Wtime() - gpu_exch_start_t;
-                cout << "GPU_ParseNPack: " << gpu_pack_t << endl;
-
-            
 
                 double exch_start_t = MPI_Wtime();
                 DBG("%s %d : before ParseNPack, readIndex=%lld\n", __FUNCTION__, __LINE__, readIndex);
                 offset = ParseNPack(seqs, names, quals, outgoing, readids, positions, readIndex, extquals, extseqs, readNameMap, exchangeAndCountPass, offset);    // no-op if seqs.size() == 0
                 DBG("%s %d : after ParseNPack, readIndex=%lld\n", __FUNCTION__, __LINE__, readIndex);
                 double pack_t = MPI_Wtime() - exch_start_t;
-                cout << "CPU_ParseNPack: " << pack_t << endl;
+                cout << ", CPU_ParseNPack: " << pack_t << endl;
                 tot_pack += pack_t;
+				MPI_Barrier(MPI_COMM_WORLD);  
+                double gpu_exch_start_t = MPI_Wtime();
+                GPU_ParseNPack(seqs, names, quals, outgoing, readids, positions, readIndex, extquals, extseqs, readNameMap, exchangeAndCountPass, tmp_offset);    // no-op if seqs.size() == 0
+                double gpu_pack_t = MPI_Wtime() - gpu_exch_start_t;
+                cout << "Time GPU_ParseNPack(): " << gpu_pack_t << endl;
 
                 DBG("Packed up to  %lld.  Starting Exchange outgoing %lld %0.3f sec\n", (lld) offset, (lld) outgoing.size(), pack_t);
                 if (offset == seqs.size()) {
@@ -1370,10 +1398,10 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
                     quals.clear();
                     offset = 0;
                 }
-                
+				MPI_Barrier(MPI_COMM_WORLD);                
                 double exch_t = 0;//Exchange(outgoing, readids, positions, extquals, extseqs, mykmers, myreadids, mypositions, /*myquals, myseqs,*/ exchangeAndCountPass, scratch1, scratch2); // outgoing arrays will be all empty, shouldn't crush
 
-				GPU_Exchange(outgoing, readids, positions, extquals, extseqs, mykmers_GPU, myreadids, mypositions, /*myquals, myseqs,*/ exchangeAndCountPass, scratch1, scratch2); // outgoing arrays will be all empty, shouldn't crush
+				GPU_Exchange(outgoing, readids, positions, extquals, extseqs, kmers_GPU, myreadids, mypositions, /*myquals, myseqs,*/ exchangeAndCountPass, scratch1, scratch2); // outgoing arrays will be all empty, shouldn't crush
 
 #ifdef DEBUG
                if(myrank==0) cout << "Finished Exchange pass " << exchangeAndCountPass << endl;
@@ -1392,13 +1420,13 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
                 double t_HTcreate = MPI_Wtime();
                 // DealWithInMemoryData(mykmers, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
 // #ifdef GPU
-                // GPU_DealWithInMemoryData(mykmers_GPU, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
+                GPU_DealWithInMemoryData(kmers_GPU, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
 // #endif
                 t_allbtch_HTcreate += MPI_Wtime() - t_HTcreate;
                 cout << "CPU HTtime: " << t_allbtch_HTcreate << endl;
 
                 moreToExchange = offset < seqs.size(); // TODO make sure this isn't problematic in long read version
-                mykmers_GPU.clear();
+                kmers_GPU.clear();
                 mykmers.clear();
                 myreadids.clear();
                 mypositions.clear();
@@ -2032,7 +2060,8 @@ int kmermatch_main(int argc, char ** argv)
 	}
 	DBG("My read range is [%lld - %lld]\n", (myrank==0? 1 : readRanges[myrank-1]+1), readRanges[myrank]);
 	//////////////////////////
-
+	// IN
+	return 0;
 
 	// perform pass 2
 	ProcessFiles(allfiles, 2, cardinality, cached_io, base_dir, myReadStartIndex, *readNameMap);
