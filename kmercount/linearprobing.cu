@@ -330,39 +330,45 @@ __global__ void gpu_parseKmerNFillupBuff(char *seq, char *kmers, int klen, unsig
     uint64_t* outgoing, int *owner_counter, int nproc, int p_buff_len){
     
     unsigned int tId = threadIdx.x;
-    unsigned int laneId = tId & 31;
+    unsigned int laneId = tId & (blockDim.x - 1);
     unsigned int gId = (blockIdx.x * blockDim.x + tId);
-    unsigned int wId = (gId % 128 ) >> 5;
-
-    int nWarp = blockDim.x / 32;
     int per_block_seq_len = (seq_len + (gridDim.x - 1)) / gridDim.x;
-    int per_warp_seq_len = (per_block_seq_len + (nWarp - 1)) / nWarp;
     int st_char_block = blockIdx.x * per_block_seq_len; //first char this block should read
-    int st_char_warp = st_char_block + wId * per_warp_seq_len;
-    int nKmer = seq_len - klen + 1;
-    int warpSize = 32;
+    int nKmer = seq_len - klen + 1; //last char is 'a'
 
-   for(int i = st_char_warp ; i < st_char_warp + per_warp_seq_len && (i + laneId) <= nKmer ; i+=warpSize) {
+
+   for(int i = st_char_block + laneId; i  < (st_char_block + per_block_seq_len) && i < nKmer ; i+=blockDim.x) {
         keyType longs = 0; //GPU CAS support this for 64 bit
-        bool endOfRead = false;
+        bool validKmer = true;
+     
         for (int k = 0; k < klen; ++k) {
-            char s =  seq[i + k + laneId];
-            if(s == 'a') { endOfRead = true; break;}
+            // if((i+k) >= nKmer ) {endOfRead = true; break;}
+            char s =  seq[i + k ];
+            if(s == 'a' || s == 'N')  {
+                validKmer = false; break;
+            }
+            // if( s == 'A' || s == 'C' || s == 'T' || s == 'G') { 
             int j = k % 32;
             int l = k/32;
             // assert(s != '\0');
             size_t x = ((s) & 4) >> 1;
             longs |= ((x + ((x ^ (s & 2)) >>1)) << (2*(31-j))); //make it longs[] to support larger kmer
+            // }
+            // else {
+            //     endOfRead = true; 
+            //     break;
+            // }
         }
-        if(endOfRead) continue;
-        keyType owner = murmur3_64(longs) & (nproc - 1); // remove & with HTcapacity in func
-        int old_count = atomicAdd(&owner_counter[owner],1); 
+        if(validKmer ) {
 
-        if(old_count >= nKmer) return;
-        if(old_count >= p_buff_len * 2 ) {
-            printf("Overflow!! MISSION ABORT!!\n");
-        }
-        outgoing[owner * p_buff_len + old_count]=longs; //hash (longs)      
+            keyType owner = murmur3_64(longs) & (nproc - 1); // remove & with HTcapacity in func
+            int old_count = atomicAdd(&owner_counter[owner],1); 
+ 
+            if(old_count >= p_buff_len * 2 ) {
+                printf("Overflow!! MISSION ABORT!!\n");
+            }
+            outgoing[owner * p_buff_len + old_count]=longs; //hash (longs)   
+        }   
     }
 }
 
@@ -424,13 +430,13 @@ uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int 
     checkCuda (cudaMemcpy(owner_counter, d_owner_counter, nproc * sizeof(int) , cudaMemcpyDeviceToHost), __LINE__); 
    
     uint64_t total_counter = 0;
-    printf("GPU ParseNPack: rank %d", rank); 
+    // printf("GPU ParseNPack: rank %d", rank); 
     for (int i = 0; i < nproc; ++i)
     {
         total_counter += owner_counter[i];
        // printf(" %d: %d,", i, owner_counter[i]);
     }
-    printf(", Total: %d \n", total_counter);
+    printf("GPU ParseNPack: Total kmers: %d \n", total_counter);
     // cudaFree(d_kmers);
     // cudaFree(d_outgoing);
     cudaFree(d_seq);
