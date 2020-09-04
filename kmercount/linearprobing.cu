@@ -374,23 +374,20 @@ __global__ void gpu_parseKmerNFillupBuff(char *seq, char *kmers, int klen, unsig
 
 uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int rank){
 
-    // printf("CHANGE\n");
     int count, devId;
-        // Map MPI ranks to GPUs
-
+    char *d_kmers, *d_seq;
+    uint64_t *d_outgoing, *d_outOverflowBuff;
+    int *d_owner_counter; 
+        
+    // Map MPI ranks to GPUs
     cudaGetDeviceCount(&count);
     int gpuID = rank % count;
     cudaSetDevice(gpuID);
     cudaGetDevice(&devId);
-    // printf("\n nProcs %d: rank %d mapped to %d\n", nproc, rank, devId);
 
-    // nproc = 4;
     unsigned int seq_len = strlen(seq);
+    if(seq_len < klen) return d_outgoing;
     unsigned int n_kmers =  seq_len - klen + 1;
-
-    char *d_kmers, *d_seq;
-    uint64_t *d_outgoing, *d_outOverflowBuff;
-    int *d_owner_counter; 
 
     // Create events for GPU timing
     cudaEvent_t start, stop;
