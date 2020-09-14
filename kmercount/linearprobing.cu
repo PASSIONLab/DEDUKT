@@ -18,14 +18,6 @@
 
 #define BIG_CONSTANT(x) (x)
 
-cudaError_t checkCuda(cudaError_t result, int s){
-
-  if (result != cudaSuccess) {
-    fprintf(stderr, "CUDA Runtime Error in line : %s - %d\n", cudaGetErrorString(result), s);
-    // assert(result == cudaSuccess);
-  }
-  return result;
-}
 
 // 32 bit Murmur3 hash
 __device__ keyType murmur3_32(keyType k) //TODO:: for now just changed keytype
@@ -213,8 +205,11 @@ __global__ void gpu_hashtable_insert(KeyValue* hashtable,
 //     }
 // }
 
-std::vector<KeyValue> insert_hashtable(KeyValue* pHashTable, const keyType* keys, uint32_t num_keys, int rank)
+// void insert_hashtable(KeyValue* pHashTable, const keyType* keys, uint32_t num_keys, int rank)
+
+void insert_hashtable(KeyValue* pHashTable, keyType* device_keys, uint32_t num_keys, int rank)
 {
+
     // Map MPI ranks to GPUs
     int count, devId;
     cudaGetDeviceCount(&count);
@@ -232,11 +227,11 @@ std::vector<KeyValue> insert_hashtable(KeyValue* pHashTable, const keyType* keys
     /*------------------------
      Copy kmers to GPU      
     ------------------------*/
-    keyType* device_keys;
+    // keyType* device_keys;
     cudaEventRecord(start);
     
-    checkCuda( cudaMalloc(&device_keys, sizeof(keyType) * num_keys), __LINE__); 
-    checkCuda( cudaMemcpy(device_keys, keys, sizeof(keyType) * num_keys, cudaMemcpyHostToDevice), __LINE__); 
+    // checkCuda( cudaMalloc(&device_keys, sizeof(keyType) * num_keys), __LINE__); 
+    // checkCuda( cudaMemcpy(device_keys, keys, sizeof(keyType) * num_keys, cudaMemcpyHostToDevice), __LINE__); 
     
     // cudaEventRecord(stop);
     // cudaEventSynchronize(stop);
@@ -288,19 +283,19 @@ std::vector<KeyValue> insert_hashtable(KeyValue* pHashTable, const keyType* keys
 
     cudaEventSynchronize(stop);
 
-    float milliseconds = 0;
-    cudaEventElapsedTime(&milliseconds, start, stop);
-    float seconds = milliseconds / 1000.0f;
-    printf("    GPU inserted %d items in %f ms (%f million keys/second)\n", 
-        num_keys, milliseconds, num_keys / (double)seconds / 1000000.0f);
+    // float milliseconds = 0;
+    // cudaEventElapsedTime(&milliseconds, start, stop);
+    // float seconds = milliseconds / 1000.0f;
+    // printf("    GPU inserted %d items in %f ms (%f million keys/second)\n", 
+    //     num_keys, milliseconds, num_keys / (double)seconds / 1000000.0f);
 
-    std::vector<KeyValue> keys1;
-    keys1.resize(kHashTableCapacity);
+    // std::vector<KeyValue> h_pHashTable;
+    // h_pHashTable.resize(kHashTableCapacity);
 
-    cudaMemcpy(keys1.data(), pHashTable, sizeof(KeyValue) * kHashTableCapacity, cudaMemcpyDeviceToHost); 
+    // cudaMemcpy(h_pHashTable.data(), pHashTable, sizeof(KeyValue) * kHashTableCapacity, cudaMemcpyDeviceToHost); 
 
     cudaFree(device_keys);
-    return keys1;
+    return ;//h_pHashTable;
 
 }
 
@@ -376,7 +371,7 @@ uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int 
 
     int count, devId;
     char *d_kmers, *d_seq;
-    uint64_t *d_outgoing, *d_outOverflowBuff;
+    uint64_t *d_outgoing, *d_outOverflowBuff, *h_outgoing;
     int *d_owner_counter; 
         
     // Map MPI ranks to GPUs
@@ -386,21 +381,24 @@ uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int 
     cudaGetDevice(&devId);
 
     unsigned int seq_len = strlen(seq);
-    if(seq_len < klen) return d_outgoing;
+    if(seq_len < klen) return h_outgoing;
     unsigned int n_kmers =  seq_len - klen + 1;
 
     // Create events for GPU timing
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
-    cudaEventRecord(start);
-    // checkCuda (cudaMalloc(&d_kmers, n_kmers * klen * sizeof(char*)), __LINE__);
+    float milliseconds = 0;
+    
+    cuda_timer_start(start);
+   
+    // CUDA mallocs
     checkCuda (cudaMalloc(&d_outgoing, n_kmers*2 * sizeof(uint64_t*)), __LINE__);  // giving 2x space to each node 
     checkCuda (cudaMalloc(&d_seq, seq_len * sizeof(char*)), __LINE__);
+    checkCuda (cudaMalloc(&d_owner_counter, nproc * sizeof(int)), __LINE__);
+    
     checkCuda (cudaMemcpy(d_seq, seq, seq_len * sizeof(char*) , cudaMemcpyHostToDevice), __LINE__);
     cudaMemset(d_outgoing,  0, n_kmers*2 * sizeof(uint64_t));
-
-    checkCuda (cudaMalloc(&d_owner_counter, nproc * sizeof(int)), __LINE__);
     cudaMemset(d_owner_counter,  0, sizeof(int) * nproc);
 
     int p_buff_len = ((n_kmers * 2) + nproc - 1)/nproc;
@@ -411,34 +409,27 @@ uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int 
 
     gpu_parseKmerNFillupBuff<<<g, b>>>(d_seq, d_kmers, klen, seq_len, d_outgoing, d_owner_counter, nproc, p_buff_len);
 
-    cudaEventRecord(stop);
-    cudaEventSynchronize(stop);
-    float milliseconds = 0;
-    cudaEventElapsedTime(&milliseconds, start, stop);
-    float seconds = milliseconds / 1000.0f;
+    
+
+    // float seconds = milliseconds / 1000.0f;
     // printf("    GPU parseNPack: n %f ms (%f million kmers/second)\n", 
     //      milliseconds, n_kmers / (double)seconds / 1000000.0f);
 
-
-    // // char *h_kmers = (char *) malloc ( n_kmers * klen * sizeof(char*));
-    // uint64_t *h_outgoing = (uint64_t *) malloc ( n_kmers * 2 * sizeof(uint64_t));
-
-    // checkCuda (cudaMemcpy(h_outgoing, d_outgoing, n_kmers * 2 * sizeof(uint64_t) , cudaMemcpyDeviceToHost), __LINE__); 
+    h_outgoing = (uint64_t *) malloc ( n_kmers * 2 * sizeof(uint64_t));
+    checkCuda (cudaMemcpy(h_outgoing, d_outgoing, n_kmers * 2 * sizeof(uint64_t) , cudaMemcpyDeviceToHost), __LINE__); 
     checkCuda (cudaMemcpy(owner_counter, d_owner_counter, nproc * sizeof(int) , cudaMemcpyDeviceToHost), __LINE__); 
    
     uint64_t total_counter = 0;
-    // printf("GPU ParseNPack: rank %d", rank); 
-    for (int i = 0; i < nproc; ++i)
-    {
-        total_counter += owner_counter[i];
-       // printf(" %d: %d,", i, owner_counter[i]);
-    }
+    for (int i = 0; i < nproc; ++i)    
+        total_counter += owner_counter[i];    
     printf("GPU ParseNPack: Total kmers: %d \n", total_counter);
-    // cudaFree(d_kmers);
-    // cudaFree(d_outgoing);
+
     cudaFree(d_seq);
+    cudaFree(d_outgoing);
     cudaFree(d_owner_counter);
-    return d_outgoing;
+
+    cuda_timer_stop(start, stop, milliseconds);
+    return h_outgoing;
 }
 
 

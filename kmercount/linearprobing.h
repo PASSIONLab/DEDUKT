@@ -10,37 +10,37 @@ struct KeyValue
     uint32_t value;
 };
 
-// struct HashTable_GPU
-// {
-	const uint64_t kHashTableCapacity = 128 * 1024 * 1024;
+inline cudaError_t checkCuda(cudaError_t result, int s){
 
-	const uint64_t kNumKeyValues = kHashTableCapacity / 2;//4168188;
-
-	const keyType kEmpty = 0;
-
-	// HashTable_GPU(uint64_t HT_cap, uint64_t size){
-	// 	kHashTableCapacity = HT_cap;
-	// 	kNumKeyValues = kHashTableCapacity / 2 ;
-	// }
-	
-// };
+  if (result != cudaSuccess) {
+    fprintf(stderr, "CUDA Runtime Error in line : %s - %d\n", cudaGetErrorString(result), s);
+    // assert(result == cudaSuccess);
+  }
+  return result;
+}
 
 
-// void init_HT_GPU()
-// {
-// 	const uint64_t kHashTableCapacity = 128 * 1024 * 1024;
+inline void cuda_timer_start(cudaEvent_t start){
+	checkCuda(cudaEventRecord(start), __LINE__);
+}
+inline void cuda_timer_stop(cudaEvent_t start, cudaEvent_t stop, float &mili){
+	checkCuda(cudaEventRecord(stop), __LINE__);
+    cudaEventSynchronize(stop);
+    checkCuda(cudaEventElapsedTime(&mili, start, stop), __LINE__);
+    cudaDeviceSynchronize();
+}
 
-// 	const uint64_t kNumKeyValues = kHashTableCapacity / 2;
 
-// 	const keyType kEmpty = 0;//0x1ffffffffu; //0xffffffff;
-	
-// };
+const uint64_t kHashTableCapacity = 128 * 1024 * 1024;
 
-cudaError_t checkCuda(cudaError_t result, int s);
+const uint64_t kNumKeyValues = kHashTableCapacity / 2;//4168188;
+
+const keyType kEmpty = 0;
+
 
 KeyValue* create_hashtable_GPU(int rank);
 
-std::vector<KeyValue> insert_hashtable(KeyValue* hashtable, const keyType* kvs, uint32_t num_kvs, int rank);
+void insert_hashtable(KeyValue* hashtable, keyType* kvs, uint32_t num_kvs, int rank);
 
 void lookup_hashtable(KeyValue* hashtable, KeyValue* kvs, uint32_t num_kvs);
 
