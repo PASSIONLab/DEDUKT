@@ -409,8 +409,6 @@ uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int 
 
     gpu_parseKmerNFillupBuff<<<g, b>>>(d_seq, d_kmers, klen, seq_len, d_outgoing, d_owner_counter, nproc, p_buff_len);
 
-    
-
     // float seconds = milliseconds / 1000.0f;
     // printf("    GPU parseNPack: n %f ms (%f million kmers/second)\n", 
     //      milliseconds, n_kmers / (double)seconds / 1000000.0f);
@@ -422,7 +420,7 @@ uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int 
     uint64_t total_counter = 0;
     for (int i = 0; i < nproc; ++i)    
         total_counter += owner_counter[i];    
-    printf("GPU ParseNPack: Total kmers: %d \n", total_counter);
+    // printf("GPU ParseNPack: Total kmers: %d \n", total_counter);
 
     cudaFree(d_seq);
     cudaFree(d_outgoing);
