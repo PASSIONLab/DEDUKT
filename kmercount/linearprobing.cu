@@ -1,10 +1,11 @@
 #include "stdio.h"
+#include <iostream>
 #include "stdint.h"
 #include "vector"
 #include "linearprobing.h"
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
-
+using namespace std;
 // #include "nvbio/basic/timer.h"
 // #include "nvbio/basic/console.h"
 // #include "nvbio/basic/bloom_filter.h"
@@ -393,11 +394,11 @@ uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int 
     cuda_timer_start(start);
    
     // CUDA mallocs
-    checkCuda (cudaMalloc(&d_outgoing, n_kmers*2 * sizeof(uint64_t*)), __LINE__);  // giving 2x space to each node 
-    checkCuda (cudaMalloc(&d_seq, seq_len * sizeof(char*)), __LINE__);
+    checkCuda (cudaMalloc(&d_outgoing, n_kmers*2 * sizeof(uint64_t)), __LINE__);  // giving 2x space to each node 
+    checkCuda (cudaMalloc(&d_seq, seq_len * sizeof(char)), __LINE__);
     checkCuda (cudaMalloc(&d_owner_counter, nproc * sizeof(int)), __LINE__);
     
-    checkCuda (cudaMemcpy(d_seq, seq, seq_len * sizeof(char*) , cudaMemcpyHostToDevice), __LINE__);
+    checkCuda (cudaMemcpy(d_seq, seq, seq_len * sizeof(char) , cudaMemcpyHostToDevice), __LINE__);
     cudaMemset(d_outgoing,  0, n_kmers*2 * sizeof(uint64_t));
     cudaMemset(d_owner_counter,  0, sizeof(int) * nproc);
 
@@ -421,7 +422,6 @@ uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int 
     for (int i = 0; i < nproc; ++i)    
         total_counter += owner_counter[i];    
     // printf("GPU ParseNPack: Total kmers: %d \n", total_counter);
-
     cudaFree(d_seq);
     cudaFree(d_outgoing);
     cudaFree(d_owner_counter);
