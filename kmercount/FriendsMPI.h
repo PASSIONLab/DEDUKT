@@ -47,7 +47,7 @@ static void MPI_UFXReduce(void * invec, void * inoutvec, int * len, MPI_Datatype
 
 
 
-vector< filedata >  GetFiles(char * filename)
+inline vector< filedata >  GetFiles(char * filename)
 {
         int64_t totalsize = 0;
         int numfiles = 0;

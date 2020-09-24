@@ -74,6 +74,7 @@ extern "C" {
 #include "Kmer.hpp"
 #include "simple.cuh"
 #include "linearprobing.h"
+#include "supermer.h"
 #include "KmerIterator.hpp"
 #include "Deleter.h"
 #include "ParallelFASTQ.h"
@@ -253,6 +254,7 @@ size_t ParseNPack(vector<string> & seqs, vector<string> names, vector<string> & 
     DBG("ParseNPack(seqs %lld, qals %lld, out %lld, extq %lld, exts %lld, pass %d, offset %lld)\n", (lld) seqs.size(), (lld) quals.size(), (lld) outgoing.size(), (lld) extquals.size(), (lld) extseqs.size(), pass, (lld) offset);
 
     ReadId readIndex = startReadIndex;
+	    build_supermer(seqs, offset);
 	for(size_t i=offset; i< nreads; ++i)
 	{
 		size_t found  = seqs[i].length();

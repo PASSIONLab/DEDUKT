@@ -94,7 +94,7 @@ inline size_t FinishPackPass2(vector< vector<Kmer> > & outgoing, vector < vector
     return outgoing[owner].size();
 }
 
-size_t PackEndsKmer(string & seq, string & qual, int j, Kmer &kmerreal, ReadId readid, PosInRead pos, vector< vector<Kmer> > & outgoing,
+inline size_t PackEndsKmer(string & seq, string & qual, int j, Kmer &kmerreal, ReadId readid, PosInRead pos, vector< vector<Kmer> > & outgoing,
 		vector< vector<ReadId> > & readids, vector< vector<PosInRead> > & positions, vector<vector<array<char,2>>> & extquals,
         vector<vector<array<char,2>>> & extseqs, int pass, int lastCountedBase, int kmer_length)
 {

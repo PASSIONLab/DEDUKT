@@ -63,9 +63,9 @@ FOREACH(HIPMER_KMER_LEN ${HIPMER_KMER_LENGTHS})
 ENDFOREACH()
 
 add_library(gpu_kmer STATIC
-	simple.cu 
+# 	supermer.cu 
 	linearprobing.cu
- 	simple.cuh 
+#  	supermer.h 
  	linearprobing.h 
   )
 
@@ -105,7 +105,8 @@ object			SOURCES				readufx.cpp
 			TYPE				OBJECT
 			TARGET_NAME			${NAME}
 			OUTPUT_NAME			${NAME}
-			SOURCES				kmermatch.cu
+			SOURCES				kmermatch.cu supermer.cpp
+			HEADERS				supermer.h
 			DEFINITIONS			${KMER_DEFS}
 			LINK_LIBRARIES		${ZLIB_LIBRARIES}
 			CXXFLAGS			${MPI_CXX_COMPILE_FLAGS}
@@ -185,7 +186,8 @@ object			SOURCES				readufx.cpp
 			TYPE 				OBJECT
 			TARGET_NAME			${NAME}
 			OUTPUT_NAME			${NAME}
-			SOURCES				kmermatch.cu
+			SOURCES				kmermatch.cu supermer.cpp
+			HEADERS				supermer.h
 			DEFINITIONS			${KMER_DEFS} SINGLE_EXEC=1
 			CXXFLAGS			${MPI_CXX_COMPILE_FLAGS} ${CMAKE_LINK_FLAGS} ${MPI_CXX_LINK_FLAGS}
 #			OBJECT_LIBRARIES	common fqreader ReadOverlap-${MAX_NUM_READS}-${HIPMER_KMER_LEN} LIBBLOOM-NOUPC MPIType KmerObjects-${HIPMER_KMER_LEN} kmermatch-${MAX_NUM_READS}-${HIPMER_KMER_LEN}-NOUPC
