@@ -200,7 +200,8 @@ string toString_custm(int64_t longs) {
 static int exchange_iter = 0;
 
 void getKmers_test(char * seq) {
-   
+     
+    std::unordered_map<std::string,uint64_t> kcounter_cpu; 
    // for (auto & c: seq) c = toupper(c); // ensure uppercase
    // if (seq.size() < KMER_LENGTH) 
    // 	return std::vector<Kmer>();
@@ -308,7 +309,7 @@ size_t ParseNPack(vector<string> & seqs, vector<string> names, vector<string> & 
 }
 
 double GPUtime=0;
-uint64_t *sendbuf_GPU;
+uint64_t *sendbuf_GPU = NULL;
 int * owner_counter; 
 
 size_t GPU_ParseNPack(vector<string> & seqs, vector< vector<Kmer> > & outgoing, int pass, size_t offset)
@@ -394,8 +395,6 @@ size_t GPU_ParseNPack(vector<string> & seqs, vector< vector<Kmer> > & outgoing, 
 	MPI_Pcontrol(-1,"ParseNPack");
 	return nreads;
 }
-
-
 
 
 double Exchange(vector< vector<Kmer> > & outgoing, vector< vector< ReadId > > & readids, vector< vector< PosInRead > > & positions, vector<vector<array<char,2>>> & extquals, vector<vector<array<char,2>>> & extseqs,
@@ -579,7 +578,7 @@ double GPU_Exchange(vector< vector<Kmer> > & outgoing, vector<keyType> & mykmers
 	int64_t totrecv = accumulate(recvcnt, recvcnt+nprocs, static_cast<int64_t>(0));
 	if (totrecv < 0) { cerr << myrank << " detected overflow in totrecv calculation, line" << __LINE__ << endl; }
 	DBG("totsend=%lld totrecv=%lld\n", (lld) totsend, (lld) totrecv);
-       
+    
     int n_kmers = nkmers_thisBatch; 
     int p_buff_len = ((n_kmers * 2) + nprocs - 1)/nprocs;
     // nkmers_thisBatch = 0;
@@ -591,21 +590,20 @@ double GPU_Exchange(vector< vector<Kmer> > & outgoing, vector<keyType> & mykmers
     }
     // int *d_recvbuf;
     // checkCuda (cudaMalloc(&d_recvbuf, n_kmers * 2 * sizeof(uint64_t*)), __LINE__);
-   
+
     uint64_t* recvbuf = (uint64_t*) malloc(n_kmers * 2 * sizeof(uint64_t)); 
 	
 	double exch_time = MPI_Wtime();
 
-	CHECK_MPI( MPI_Alltoallv(sendbuf_GPU, sendcnt, sdispls, MPI_BYTE, recvbuf, recvcnt, rdispls, MPI_BYTE, MPI_COMM_WORLD) );
+	CHECK_MPI( MPI_Alltoallv(sendbuf_GPU, sendcnt, sdispls, MPI_UINT64_T, recvbuf, recvcnt, rdispls, MPI_UINT64_T, MPI_COMM_WORLD) );
 	
 	// CHECK_MPI( MPI_Alltoallv(sendbuf_GPU, sendcnt, sdispls, MPI_BYTE, recvbuf, recvcnt, rdispls, MPI_BYTE, MPI_COMM_WORLD) );
 	
 	// CHECK_MPI( MPI_Alltoallv(d_outgoing, sendcnt, sdispls, MPI_LONG, d_recvbuf, recvcnt, rdispls, MPI_LONG, MPI_COMM_WORLD) );
-	// cout << "CPU alltoallv() + cudaMemcpy(future): " <<  MPI_Wtime() - exch_time1 << endl;
+	// cout << "CPU alltoallv() " <<  MPI_Wtime() - exch_time << endl;
 	// cout << "GPU direct alltoallv(): " <<  MPI_Wtime() - exch_time1 << endl;   
     // checkCuda (cudaMemcpy(recvbuf, d_recvbuf, n_kmers * 2 * sizeof(uint64_t), cudaMemcpyDeviceToHost), __LINE__); 
 
-	uint64_t nkmersrecvd = totrecv;// / bytesperentry;
     num_keys = 0;
  //    for(uint64_t i= 0; i < nprocs ; ++i) {
 	// 	for(uint64_t j= 0; j <  recvcnt[i] ; ++j)				 
@@ -615,13 +613,13 @@ double GPU_Exchange(vector< vector<Kmer> > & outgoing, vector<keyType> & mykmers
 	checkCuda( cudaMalloc(&device_keys, sizeof(keyType) * totrecv), __LINE__); 
 		
 	for(uint64_t i= 0; i < nprocs ; ++i) {
-		 
-		checkCuda( cudaMemcpy(device_keys + num_keys, &recvbuf[i * p_buff_len], sizeof(keyType) * recvcnt[i], cudaMemcpyHostToDevice), __LINE__); 
+		// if(recvcnt[i])
+			checkCuda( cudaMemcpy(device_keys + num_keys, &recvbuf[i * p_buff_len], sizeof(keyType) * recvcnt[i], cudaMemcpyHostToDevice), __LINE__); 
 		num_keys += recvcnt[i];	
 	}
-	if(totsend>0)
-		free(sendbuf_GPU);
-	free(recvbuf);
+	if(totsend > 0)  free(sendbuf_GPU);
+	if(totrecv > 0)  free(recvbuf);
+
 	// cudaFree(d_recvbuf);
 	// cout << "rank "<< myrank << " received #kmers: " <<  mykmers_GPU.size() << ", should receive " << totrecv  << endl; 
 
@@ -692,13 +690,12 @@ double GPU_DealWithInMemoryData(vector<keyType> & mykmers_GPU, int pass, struct 
 
     // std::vector<keyType> insert_kvs = populate_GPUarray(mykmers_GPU); 
     double t_count = MPI_Wtime();
-	
     // Insert items into the hash table
     // insert_hashtable(pHashTable, mykmers_GPU.data(), (uint32_t)mykmers_GPU.size(), myrank);
 	insert_hashtable(pHashTable, device_keys, num_keys, myrank);
 
     double t_count1 = MPI_Wtime() - t_count;
-   	
+
    	// correctness check
    	std::vector<KeyValue> h_pHashTable(kHashTableCapacity);
     // h_pHashTable.resize(kHashTableCapacity);
@@ -1169,7 +1166,6 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
     
     // initialize bloom filter
     if(pass == 1) {
-
     	pHashTable = create_hashtable_GPU(myrank); // IN
         // Only require bloom in pass 1!!
         unsigned int random_seed = 0xA57EC3B2;
@@ -1298,7 +1294,7 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
                     offset = 0;
                 }
 
-                double exch_t = Exchange(outgoing, readids, positions, extquals, extseqs, mykmers, myreadids, mypositions, /*myquals, myseqs,*/ exchangeAndCountPass, scratch1, scratch2); // outgoing arrays will be all empty, shouldn't crush
+                double exch_t = 0;//Exchange(outgoing, readids, positions, extquals, extseqs, mykmers, myreadids, mypositions, /*myquals, myseqs,*/ exchangeAndCountPass, scratch1, scratch2); // outgoing arrays will be all empty, shouldn't crush
 				tot_exch += exch_t;
 				
 				double exch_t_GPU = GPU_Exchange(outgoing, kmers_GPU, exchangeAndCountPass); // outgoing arrays will be all empty, shouldn't crush
@@ -1316,7 +1312,7 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
                 		ASSERT( myreadids.size() == 0,"" );
                 		ASSERT( mypositions.size() == 0,"" );
                 }
-                DealWithInMemoryData(mykmers, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
+                // DealWithInMemoryData(mykmers, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
 // #ifdef GPU
                 double process_t_GPU = GPU_DealWithInMemoryData(kmers_GPU, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
 				tot_process_GPU += process_t_GPU;
@@ -1333,11 +1329,11 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
                 // double process_t_GPU = MPI_Wtime() - exch_start_t_GPU - pack_t_GPU - exch_t_GPU;
                 tot_process += process_t;
                 
-				cout << "batch: " << batch << " GPU time: pack: " << tot_pack_GPU << ", exchange"
-				<< tot_exch_GPU << ", kcounter: " << tot_process_GPU << endl;
+				// cout << "batch: " << batch << " GPU time: pack: " << tot_pack_GPU << ", exchange"
+				// << tot_exch_GPU << ", kcounter: " << tot_process_GPU << endl;
 
-				cout << "batch: " << batch << " CPU time: pack: " << tot_pack << ", exchange"
-				<< tot_exch << ", kcounter: " << tot_process << endl << endl;
+				// cout << "batch: " << batch << " CPU time: pack: " << tot_pack << ", exchange"
+				// << tot_exch << ", kcounter: " << tot_process << endl << endl;
 
 
                 DBG("Processed (%lld).  remainingToExchange=%lld %0.3f sec\n", (lld) mykmers.size(), (lld) seqs.size() - offset, process_t);
@@ -1982,6 +1978,7 @@ int kmermatch_main(int argc, char ** argv)
 	DBG("My read range is [%lld - %lld]\n", (myrank==0? 1 : readRanges[myrank-1]+1), readRanges[myrank]);
 	//////////////////////////
 
+	exit(0);//
 	// return 0;
 
 	// perform pass 2
