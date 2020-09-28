@@ -106,11 +106,11 @@ object			SOURCES				readufx.cpp
 			TARGET_NAME			${NAME}
 			OUTPUT_NAME			${NAME}
 			SOURCES				kmermatch.cu supermer.cpp
-			HEADERS				supermer.h
+			HEADERS				supermer.h common_gpu.h
 			DEFINITIONS			${KMER_DEFS}
 			LINK_LIBRARIES		${ZLIB_LIBRARIES}
 			CXXFLAGS			${MPI_CXX_COMPILE_FLAGS}
-			CUDAFLAGS	        -ccbin=${CMAKE_CXX_COMPILER} -Xcompiler -fopenmp -arch=sm_35 -maxrregcount=32 #TODO some of these flags shouldn't be hard coded here
+			CUDAFLAGS	        -ccbin=${CMAKE_CXX_COMPILER} -Xcompiler -fopenmp -arch=sm_70 -maxrregcount=32 #TODO some of these flags shouldn't be hard coded here
  			PROPERTIES          COMPILE_LANGUAGE CUDA ${CUDA_PROPERTIES} ) 
 		add_readid_defs(${NAME})
 		
@@ -186,7 +186,7 @@ object			SOURCES				readufx.cpp
 			TYPE 				OBJECT
 			TARGET_NAME			${NAME}
 			OUTPUT_NAME			${NAME}
-			SOURCES				kmermatch.cu supermer.cpp
+			SOURCES				kmermatch.cu supermer.cpp supermer.cu
 			HEADERS				supermer.h
 			DEFINITIONS			${KMER_DEFS} SINGLE_EXEC=1
 			CXXFLAGS			${MPI_CXX_COMPILE_FLAGS} ${CMAKE_LINK_FLAGS} ${MPI_CXX_LINK_FLAGS}

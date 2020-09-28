@@ -17,31 +17,6 @@ using namespace std;
 #include <stdio.h>
 #include <stdlib.h>
 
-#define BIG_CONSTANT(x) (x)
-
-
-// 32 bit Murmur3 hash
-__device__ keyType murmur3_32(keyType k) //TODO:: for now just changed keytype
-{
-    k ^= k >> 16;
-    k *= 0x85ebca6b;
-    k ^= k >> 13;
-    k *= 0xc2b2ae35;
-    k ^= k >> 16;
-    return k & (kHashTableCapacity-1);
-}
-
-__device__ keyType murmur3_64( uint64_t k )
-{
-  k ^= k >> 33;
-  k *= BIG_CONSTANT(0xff51afd7ed558ccd);
-  k ^= k >> 33;
-  k *= BIG_CONSTANT(0xc4ceb9fe1a85ec53);
-  k ^= k >> 33;
-
-  return k & (kHashTableCapacity-1);
-}
-
 // Hash funs and variables for NVBIO Bloom Filter 
 static const uint32_t FILTER_K = 7;
 static const uint32_t ITEMS_PER_THREAD = 100;
@@ -171,7 +146,7 @@ __global__ void gpu_hashtable_insert(KeyValue* hashtable,
     if (threadid < numkvs)
     {
         keyType new_key = kvs[threadid];//.key;
-        keyType slot = murmur3_64(new_key);
+        keyType slot = cuda_murmur3_64(new_key);
         // if(filter.has(new_key))
         {
 
@@ -277,6 +252,7 @@ void insert_hashtable(KeyValue* pHashTable, keyType* device_keys, uint32_t num_k
     // cudaEventRecord(start);
 
     // Insert all the keys into the hash table
+
     int gridsize = ((uint32_t)num_keys + threadblocksize - 1) / threadblocksize;
     gpu_hashtable_insert<<<gridsize, threadblocksize>>>(pHashTable, device_keys, (uint32_t)num_keys);
 
@@ -357,7 +333,7 @@ __global__ void gpu_parseKmerNFillupBuff(char *seq, char *kmers, int klen, unsig
         }
         if(validKmer ) {
 
-            keyType owner = murmur3_64(longs) & (nproc - 1); // remove & with HTcapacity in func
+            keyType owner = cuda_murmur3_64(longs) & (nproc - 1); // remove & with HTcapacity in func
             int old_count = atomicAdd(&owner_counter[owner],1); 
  
             if(old_count >= p_buff_len * 2 ) {
@@ -419,9 +395,10 @@ uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int 
     checkCuda (cudaMemcpy(owner_counter, d_owner_counter, nproc * sizeof(int) , cudaMemcpyDeviceToHost), __LINE__); 
    
     uint64_t total_counter = 0;
-    for (int i = 0; i < nproc; ++i)    
+    for (int i = 0; i < nproc; ++i) {   
         total_counter += owner_counter[i];    
-    // printf("GPU ParseNPack: Total kmers: %d \n", total_counter);
+        // printf("GPU ParseNPack: local HT counter kmers: %d %d \n", owner_counter[i], total_counter);
+    }
     cudaFree(d_seq);
     cudaFree(d_outgoing);
     cudaFree(d_owner_counter);
@@ -438,7 +415,7 @@ __global__ void gpu_hashtable_lookup(KeyValue* hashtable, KeyValue* kvs, unsigne
     if (threadid < kHashTableCapacity)
     {
         uint32_t key = kvs[threadid].key;
-        uint32_t slot = murmur3_32(key);
+        uint32_t slot = cuda_murmur3_32(key);
 
         while (true)
         {
@@ -502,7 +479,7 @@ __global__ void gpu_hashtable_delete(KeyValue* hashtable, const KeyValue* kvs, u
     if (threadid < kHashTableCapacity)
     {
         uint32_t key = kvs[threadid].key;
-        uint32_t slot = murmur3_32(key);
+        uint32_t slot = cuda_murmur3_32(key);
 
         while (true)
         {

@@ -1,10 +1,11 @@
-// #include <stdio.h>
-// #include <iostream>
-// #include <vector>
-// #include <string>
 
 #include "Kmer.hpp"
 #include "supermer.h"
+#include <cstdint>
+#include <stdint.h>
+#include <limits>
+#include <iostream>
+
 // #include "KmerIterator.hpp"
 // #include "Deleter.h"
 #include "ParallelFASTQ.h"
@@ -19,7 +20,9 @@
 using namespace std;
 
 
-#define BIG_CONSTANT(x) (x)
+
+int MINI_LENGTH = 5;
+// #define BIG_CONSTANT(x) (x)
 // 32 bit Murmur3 hash
 int murmur3_32( int k )
 {
@@ -121,16 +124,34 @@ uint64_t compress_kmer(string cur_kmer){
 	return c_kmer;
 }
 
+uint64_t find_minimizer(uint64_t kmer, int &order){
+	
+	// int zero =  std::numeric_limits<int>::max();
+	uint64_t minimizer = std::numeric_limits<uint64_t>::max(); //INT_MAX not working!!
+	int mlen = MINI_LENGTH;
+	int local_order;
 
-int MINIMIZER_LENGTH = 5;
+	for (int m = 0; m < (KMER_LENGTH - mlen); ++m){
+		// uint64_t mmer = ((kmer >> (2*(31-(m+mlen)))) & mlen);
+		uint64_t mmer = ((kmer >> (2*(31-(m+mlen-1)))) & 1023);
+		// cout << kmer << "- " << decompress_smer(kmer,17) << " shifted bit " << (2*(31-(m+mlen))) << " out: "
+		//  << mmer << " - " <<  decompress_smer(mmer,5) << endl;	
+		if( mmer < minimizer ) {
+			local_order = m;
+			minimizer = mmer;
+		}
+	}
+	order += local_order;
+	return minimizer;
+}
 
 string find_minimizer(string kmer, int &order){
 	
 	string minimizer = "ZZZZZZZ";
 	int local_order;
-	for (int m = 0; m < (KMER_LENGTH - MINIMIZER_LENGTH); ++m)
+	for (int m = 0; m < (KMER_LENGTH - MINI_LENGTH); ++m)
 	{
-		string mmer = kmer.substr(m, MINIMIZER_LENGTH);
+		string mmer = kmer.substr(m, MINI_LENGTH);
 		if( mmer < minimizer ) {
 			local_order = m;
 			minimizer = mmer;
@@ -185,9 +206,9 @@ void parse_supermer_N_build_kmercounter(vector<uint64_t> c_smer, vector<unsigned
 
 std::unordered_map<std::string,uint64_t> kcounter_cpu; 
 void parse_supermer_N_build_kmercounter(uint64_t* recvbuf, unsigned char* len_smers, int* recvcnt, int p_buff_len){
-   
+
    std::vector<uint64_t> kmers_compressed;
-   // for (int i = 0; i < c_smers.size(); ++i)
+
    	for(uint64_t i= 0; i < nprocs ; ++i) 
    	{
 		for(uint64_t j= 0; j <  recvcnt[i] ; ++j)
@@ -197,11 +218,12 @@ void parse_supermer_N_build_kmercounter(uint64_t* recvbuf, unsigned char* len_sm
    			int slen = (int)c;
 	   		string d_smer = decompress_smer(cur_csmer, c);
 	   		// if(j < 5)
-	   		// 	cout << myrank << ": " << d_smer << " " << len_smers[j] << endl;
+	   		// 	cout << myrank << ": smer: " << d_smer << " len:" << c << endl;
 	   		
 		    for(int k = 0; k < slen - KMER_LENGTH + 1; ++k) {
 
 		    	string cur_kmer = d_smer.substr(k, KMER_LENGTH);
+		    	
 		    	auto found = kcounter_cpu.find(cur_kmer);// == kcounter_cpu.end() )
 		    	if(found != kcounter_cpu.end())
 		    		found->second += 1;
@@ -369,6 +391,8 @@ uint64_t* Exchange_supermers(uint64_t* outgoing, unsigned char* len_smers,
 	MPI_Pcontrol(-1,"Exchange");
 	return recvbuf;
 }
+
+
 
 
 double tot_exch_time_smer_concat = 0; 
@@ -539,7 +563,11 @@ size_t build_concat_supermer(vector<string> seqs, size_t offset)
 std::unordered_map<int,uint64_t> histogram_mini; 
 size_t build_supermer(vector<string> seqs, size_t offset)
 {
+	KMER_LENGTH= 17;
+	Kmer::set_k(17);
+
 	size_t nreads = seqs.size(), max_slen = 0;
+		cout << "Offset, nreads " <<  offset << " " << nreads << endl;
 	vector<string> supermers;
 	vector<uint64_t> c_supermers; //compressed supermers
 	vector<unsigned char> len_smers; //length of c_supermers 
@@ -566,7 +594,7 @@ size_t build_supermer(vector<string> seqs, size_t offset)
 	// memset(supermer_bins, 0, 10 * sizeof(int));
 	int max_hit = 0;
 	for(size_t i=offset; i< nreads; ++i)
-	{		
+	{	//	cout << "klen " <<  KMER_LENGTH << endl;	
 		if (seqs[i].length() <= KMER_LENGTH) { // skip too short seqs
 			continue;
 		}
@@ -603,7 +631,7 @@ size_t build_supermer(vector<string> seqs, size_t offset)
 			if(minimizer == prev_minimizer && order == prev_order) {
 							
 				char s = seqs[i][c+KMER_LENGTH-1];
-				supermers[supermers.size()-1] += s;			
+				supermers[supermers.size()-1] += s;		
 				int k = cur_slen;
 	    		int j = k % 32;
 	   			size_t x = ((s) & 4) >> 1;
@@ -632,14 +660,14 @@ size_t build_supermer(vector<string> seqs, size_t offset)
 				outgoing_lensmers[owner * p_buff_len + sendcnt[owner]] = (unsigned char)cur_slen;
 				sendcnt[owner]++;
 
-				int hist = murmur3_32_tmp(*(uint32_t *)c_m);
-				auto found = histogram_mini.find(hist);// == kcounter_cpu_concat; .end() )
+				// int hist = murmur3_32_tmp(*(uint32_t *)c_m);
+				// auto found = histogram_mini.find(hist);// == kcounter_cpu_concat; .end() )
 			
-				if(found != histogram_mini.end()){
-				   	found->second += 1;
-				   	max_hit = max(max_hit, (int)found->second);
-				}
-				else histogram_mini.insert({hist,1}); 	 
+				// if(found != histogram_mini.end()){
+				//    	found->second += 1;
+				//    	max_hit = max(max_hit, (int)found->second);
+				// }
+				// else histogram_mini.insert({hist,1}); 	 
 					
 			}
 			prev_minimizer = minimizer;
@@ -660,23 +688,21 @@ size_t build_supermer(vector<string> seqs, size_t offset)
 			break;
 		}
 	}
+ 
     uint64_t totkmer = 0, nHTsize= 0;
-    max_hit = max_hit/20;
-    int histbin[max_hit];
-    memset(&histbin, 0, max_hit * sizeof(int));
-    size_t tot_hist = 0;
-	for ( auto it = histogram_mini.begin(); it!= histogram_mini.end(); ++it ){
-		tot_hist+=it->second;
-
-		cout << it->second << " ";
-	}
-	cout  << "\ntotl ele in hist " << tot_hist << endl;
+    // max_hit = max_hit/20;
+    // int histbin[max_hit];
+    // memset(&histbin, 0, max_hit * sizeof(int));
+    // size_t tot_hist = 0;
+	// for ( auto it = histogram_mini.begin(); it!= histogram_mini.end(); ++it ){
+	// 	tot_hist+=it->second;
+	// 	cout << it->second << " ";
+	// }
+	// cout  << "\ntotl ele in hist " << tot_hist << endl;
 	
-
-	
-	for (int p = 0; p < nprocs; ++p)
-		cout << sendcnt[p] << " ";
-	cout << endl;
+	// for (int p = 0; p < nprocs; ++p)
+	// 	cout << sendcnt[p] << " ";
+	// cout << endl;
 
 	// Supermer stats
 	total_supermers += supermers.size();
@@ -686,7 +712,7 @@ size_t build_supermer(vector<string> seqs, size_t offset)
 	uint64_t *recv_smers = (uint64_t*) malloc(n_kmers * 2 * sizeof(uint64_t)); 
 	
 	Exchange_supermers(outgoing_csmers, outgoing_lensmers, recv_smers, recv_slen, sendcnt, recvcnt, n_kmers);
-
+// 
 	// cout << "After exchange: " << endl;
 	int totssmer = 0, totrsmer = 0;
 	for (int i = 0; i < nprocs; ++i)
@@ -706,7 +732,7 @@ size_t build_supermer(vector<string> seqs, size_t offset)
 		string d_kmer = decompress_smer(c_supermers[j], len_smers[j]);
 			   		
 		// if(supermers[j] != d_kmer)
-		// 	cout << j << ": Didnt match " << supermers[j] << " " << d_kmer << endl;
+			// cout << j << ": Didnt match " << supermers[j] << " " << d_kmer << endl;
 		// else
 		// 	cout << j << ": Matched " << supermers[j] << " " << d_kmer << endl;
 		// cout << i << ": "  << supermers[i] <<" " << c_supermers[i] << " " << decompress_smer(c_supermers[i], len_smers[i]) << " " << len_smers[i] << endl; 
@@ -725,6 +751,206 @@ size_t build_supermer(vector<string> seqs, size_t offset)
 	delete[] sendcnt; delete[] recvcnt;
 	return nreads;
 }
+
+// size_t build_supermer(vector<string> seqs, size_t offset)
+// {
+// 	size_t nreads = seqs.size(), max_slen = 0;
+// 	vector<string> supermers;
+// 	vector<uint64_t> c_supermers; //compressed supermers
+// 	vector<unsigned char> len_smers; //length of c_supermers 
+// 	size_t memoryThreshold = (MAX_ALLTOALL_MEM / nprocs) * 2;  //copied form diBella
+// 	size_t bytesperentry = 8; // unint64 //confirm with Aydin
+// 	int * recvcnt = new int[nprocs];
+// 	int * sendcnt = new int[nprocs];
+// 	memset(sendcnt, 0, sizeof(int) * nprocs);
+// 	unsigned int n_kmers = 0, kmersthisbatch = 0;
+	
+// 	for(size_t i=offset; i< nreads; ++i)
+// 	{		
+// 		if (seqs[i].length() <= KMER_LENGTH)  // skip too short seqs
+// 			continue;
+// 		n_kmers += seqs[i].length() - KMER_LENGTH + 1;
+// 	}
+// 	nkmers_sofar += n_kmers;
+
+// 	//long 1D array. Size randomly chosen for now. Might overflow.
+// 	uint64_t* outgoing_csmers = new uint64_t[n_kmers * 2]; // worst case #smers = #kmers
+// 	unsigned char* outgoing_lensmers = new unsigned char[n_kmers * 2]; // worst case #smers = #kmers
+// 	int p_buff_len = ((n_kmers * 2) + nprocs - 1)/nprocs;
+
+// 	// memset(supermer_bins, 0, 10 * sizeof(int));
+// 	int max_hit = 0;
+// 	for(size_t i=offset; i< nreads; ++i)
+// 	{		
+// 		if (seqs[i].length() <= KMER_LENGTH) { // skip too short seqs
+// 			continue;
+// 		}
+
+// 		kmersthisbatch += (seqs[i].length()-KMER_LENGTH+1);
+		
+// 		// Build supermers from the current read	
+		
+// 		unsigned int owner;
+// 		int order = 0, prev_order;
+// 		string cur_kmer = seqs[i].substr(0, KMER_LENGTH);
+// 		string minimizer = find_minimizer(cur_kmer, order);
+// 		string prev_minimizer = minimizer;
+// 		prev_order = order;
+// 		int cur_slen =  KMER_LENGTH;
+// 		uint64_t compressed_supermer = compress_kmer(cur_kmer); 
+// 		// uint64_t compress_mini = find_minimizer(compressed_supermer, order); 
+// 		// uint64_t compress_prev_minimizer = compress_mini;
+		
+// 		char c_m[32];
+// 		strcpy(c_m, minimizer.c_str());
+// 		owner = murmur3_32(*(uint32_t *)c_m);
+// 		// owner = murmur3_32(compress_mini);
+
+// 		supermers.push_back(cur_kmer);
+// 		c_supermers.push_back(compressed_supermer);
+// 		len_smers.push_back((unsigned char)cur_slen); 		// unsigned char cc = cur_slen;
+// 		outgoing_csmers[owner * p_buff_len + sendcnt[owner]] = compressed_supermer;
+// 		outgoing_lensmers[owner * p_buff_len + sendcnt[owner]++] = (unsigned char)cur_slen;
+		
+// 		// for (int c = 1; c < 2; ++c)
+// 		for (int c = 1; c < seqs[i].length()-KMER_LENGTH+1; ++c)
+// 		{ 
+// 			cur_kmer = seqs[i].substr(c, KMER_LENGTH);
+
+// 			// size_t Nfound = cur_kmer.find('N');
+// 			// Nfound!=std::string::npos 
+
+// 			order = c;
+// 			// compress_mini = find_minimizer(compress_kmer(cur_kmer), order); 
+// 			minimizer = find_minimizer(cur_kmer, order);
+
+// 			if(minimizer == prev_minimizer && order == prev_order) {
+// 			// if( compress_mini == compress_prev_minimizer && order == prev_order) {
+							
+// 				char s = seqs[i][c+KMER_LENGTH-1];
+// 				supermers[supermers.size()-1] += s;			
+// 				int k = cur_slen;
+// 	    		int j = k % 32;
+// 	   			size_t x = ((s) & 4) >> 1;
+// 	    		compressed_supermer |= ((x + ((x ^ (s & 2)) >>1)) << (2*(31-j)));
+// 	    		cur_slen++;
+// 	   			// c_supermers[supermers.size()-1] = compressed_supermer;
+// 				// len_smers[len_smers.size()-1] = (unsigned char)cur_slen;		
+// 			}
+// 			else {
+// 				c_supermers[supermers.size()-1] = compressed_supermer;
+// 				len_smers[len_smers.size()-1] = (unsigned char)cur_slen;	
+// 				outgoing_csmers[owner * p_buff_len + sendcnt[owner] - 1] = compressed_supermer;
+// 				outgoing_lensmers[owner * p_buff_len + sendcnt[owner] - 1] = (unsigned char)cur_slen;
+
+// 				// new supermer starts
+// 				compressed_supermer = compress_kmer(cur_kmer);
+// 				cur_slen = KMER_LENGTH;
+// 				supermers.push_back(cur_kmer);
+// 				c_supermers.push_back(compressed_supermer);	
+// 				len_smers.push_back((unsigned char)KMER_LENGTH);	
+// 				char c_m[32];
+// 				strcpy(c_m, minimizer.c_str());
+// 				// owner = murmur3_32(compress_mini);
+// 				owner = murmur3_32(*(uint32_t *)c_m);
+// 				outgoing_csmers[owner * p_buff_len + sendcnt[owner]] = compressed_supermer;
+// 				outgoing_lensmers[owner * p_buff_len + sendcnt[owner]] = (unsigned char)cur_slen;
+// 				sendcnt[owner]++;
+
+// 				int hist = murmur3_32_tmp(*(uint32_t *)c_m);
+// 				auto found = histogram_mini.find(hist);// == kcounter_cpu_concat; .end() )
+			
+// 				if(found != histogram_mini.end()){
+// 				   	found->second += 1;
+// 				   	max_hit = max(max_hit, (int)found->second);
+// 				}
+// 				else histogram_mini.insert({hist,1}); 	 
+					
+// 			}
+// 			// compress_prev_minimizer = compress_mini;
+// 			prev_minimizer = minimizer;
+// 			prev_order = order;
+// 		}
+// 		c_supermers[supermers.size()-1] = compressed_supermer;
+// 		len_smers[len_smers.size()-1] = (unsigned char)cur_slen;	
+// 		outgoing_csmers[owner * p_buff_len + sendcnt[owner]-1] = compressed_supermer;
+// 		outgoing_lensmers[owner * p_buff_len + sendcnt[owner]-1] = (unsigned char)cur_slen;
+// 		// sendcnt[owner]++;
+
+// 		int maxsending = 0;
+// 		for (int p = 0; p < nprocs; ++p)
+// 			maxsending = max(sendcnt[p], maxsending);
+		
+// 		if (maxsending * bytesperentry >= memoryThreshold || (kmersthisbatch + seqs[i].length()) * bytesperentry >= MAX_ALLTOALL_MEM) { 
+// 			nreads = i+1; // start with next read
+// 			break;
+// 		}
+// 	}
+//     uint64_t totkmer = 0, nHTsize= 0;
+//     max_hit = max_hit/20;
+//     int histbin[max_hit];
+//     memset(&histbin, 0, max_hit * sizeof(int));
+//     size_t tot_hist = 0;
+// 	// for ( auto it = histogram_mini.begin(); it!= histogram_mini.end(); ++it ){
+// 	// 	tot_hist+=it->second;
+
+// 	// 	cout << it->second << " ";
+// 	// }
+// 	// cout  << "\ntotl ele in hist " << tot_hist << endl;
+	
+
+// 	// cout << "smer distribution: ";
+// 	// for (int p = 0; p < nprocs; ++p)
+// 	// 	cout << p << ": " << sendcnt[p] << ", ";
+// 	// cout << endl;
+
+// 	// Supermer stats
+// 	// total_supermers += supermers.size();
+// 	// cout << "#supermers form cpu: " << supermers.size() << " #kmers (incl.'N','a'): " << nkmers_sofar << endl;
+
+// 	unsigned char *recv_slen = (unsigned char*) malloc(n_kmers * 2 * sizeof(unsigned char)); 
+// 	uint64_t *recv_smers = (uint64_t*) malloc(n_kmers * 2 * sizeof(uint64_t)); 
+	
+// 	Exchange_supermers(outgoing_csmers, outgoing_lensmers, recv_smers, recv_slen, sendcnt, recvcnt, n_kmers);
+
+// 	// cout << "After exchange: " << endl;
+// 	int totssmer = 0, totrsmer = 0;
+// 	for (int i = 0; i < nprocs; ++i)
+// 	{
+// 		totssmer += sendcnt[i];
+// 		totrsmer += recvcnt[i];
+// 		// cout << "from main(): proc " << myrank << ": #sendcnt  " << sendcnt[i] << ", #recvcnt: " << recvcnt[i]  << "; ";
+// 	}
+// 	// cout << "\nTotal send-recv count " << totssmer << " " << totrsmer << endl;
+// 	parse_supermer_N_build_kmercounter(recv_smers, recv_slen, recvcnt, p_buff_len);
+// 	// parse_supermer_N_build_kmercounter(c_supermers, len_smers, recvcnt, p_buff_len);
+
+
+// 	/*********Correctness check*******/
+// 	for (int j = 0; j < supermers.size(); ++j)
+// 	{
+// 		string d_kmer = decompress_smer(c_supermers[j], len_smers[j]);
+			   		
+// 		// if(supermers[j] != d_kmer)
+// 		// 	cout << j << ": Didnt match " << supermers[j] << " " << d_kmer << endl;
+// 		// else
+// 		// 	cout << j << ": Matched " << supermers[j] << " " << d_kmer << endl;
+// 		// cout << i << ": "  << supermers[i] <<" " << c_supermers[i] << " " << decompress_smer(c_supermers[i], len_smers[i]) << " " << len_smers[i] << endl; 
+// 		// size_t slen = supermers[j].length();
+// 		// max_slen = std::max(max_slen, slen);
+// 		// supermer_bins[(slen - KMER_LENGTH)]++;
+// 		// tot_char += slen;
+// 	}
+// 	supermers.clear();
+// 	// cout << "#supermers: " << total_supermers <<", Total length of all supermers: " 
+// 	// 	<< tot_char << ", #kmers: " << total_kmers <<", len of longest supermer: " << max_slen << endl;
+// 	// for (int j = 0; j < 20; ++j)
+// 	// 	cout << "#supermers between length " << j+KMER_LENGTH << " - " << j+1+KMER_LENGTH << " " << supermer_bins[j] << endl;
+// 	free(recv_slen); free(recv_smers); 
+// 	free(outgoing_csmers); free(outgoing_lensmers);
+// 	delete[] sendcnt; delete[] recvcnt;
+// 	return nreads;
+// }
 
 void getKmers_noncompress(vector<string> seqs, int offset) {
    
