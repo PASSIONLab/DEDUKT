@@ -252,8 +252,6 @@ size_t ParseNPack(vector<string> & seqs, vector<string> names, vector<string> & 
     DBG("ParseNPack(seqs %lld, qals %lld, out %lld, extq %lld, exts %lld, pass %d, offset %lld)\n", (lld) seqs.size(), (lld) quals.size(), (lld) outgoing.size(), (lld) extquals.size(), (lld) extseqs.size(), pass, (lld) offset);
 
     ReadId readIndex = startReadIndex;
-    
-	build_supermer(seqs, offset);
 	
 	for(size_t i=offset; i< nreads; ++i)
 	{
@@ -644,8 +642,7 @@ double Exchange(vector< vector<Kmer> > & outgoing, vector< vector< ReadId > > & 
 }
 
 keyType *device_keys;
-size_t num_keys = 0;
-
+size_t nkmers_gpu = 0;
 double GPU_Exchange(vector< vector<Kmer> > & outgoing, vector<keyType> & mykmers_GPU, int pass)
 {
 	MPI_Pcontrol(1,"Exchange");
@@ -703,7 +700,7 @@ double GPU_Exchange(vector< vector<Kmer> > & outgoing, vector<keyType> & mykmers
 	// cout << "GPU direct alltoallv(): " <<  MPI_Wtime() - exch_time1 << endl;   
     // checkCuda (cudaMemcpy(recvbuf, d_recvbuf, n_kmers * 2 * sizeof(uint64_t), cudaMemcpyDeviceToHost), __LINE__); 
 
-    num_keys = 0;
+    nkmers_gpu = 0;
     for(uint64_t i= 0; i < nprocs ; ++i) {
 		for(uint64_t j= 0; j <  recvcnt[i] ; ++j)				 
 			mykmers_GPU.push_back(recvbuf[i * p_buff_len + j]);
@@ -713,8 +710,8 @@ double GPU_Exchange(vector< vector<Kmer> > & outgoing, vector<keyType> & mykmers
 		
 	for(uint64_t i= 0; i < nprocs ; ++i) {
 		// if(recvcnt[i])
-		 cudaMemcpy(device_keys + num_keys, &recvbuf[i * p_buff_len], sizeof(keyType) * recvcnt[i], cudaMemcpyHostToDevice); 
-		num_keys += recvcnt[i];	
+		 cudaMemcpy(device_keys + nkmers_gpu, &recvbuf[i * p_buff_len], sizeof(keyType) * recvcnt[i], cudaMemcpyHostToDevice); 
+		nkmers_gpu += recvcnt[i];	
 	}
 
 	if(totsend > 0)  free(sendbuf_GPU);
@@ -749,9 +746,7 @@ void Exchange_GPUsupermers(keyType* outgoing, unsigned char* len_smers, int *sen
     for (int i=0; i < nprocs; i++) {
     	// outgoing[i].clear(); // CPU parseNPack is populating this..remove when that call is removed
         sendcnt[i] = owner_counter[i];
-        cout << "GPU smer send count " << owner_counter[i] << " ";
     }
-    cout << endl;
     free(owner_counter);
    
 	CHECK_MPI( MPI_Alltoall(sendcnt, 1, MPI_INT, recvcnt, 1, MPI_INT, MPI_COMM_WORLD) );  // share the request counts
@@ -784,9 +779,8 @@ void Exchange_GPUsupermers(keyType* outgoing, unsigned char* len_smers, int *sen
 // checkCuda (cudaMalloc(&d_supermers, n_kmers * buff_scale * sizeof(keyType)), __LINE__); 
 	checkCuda( cudaMalloc(&d_recv_smers, sizeof(keyType) * totrecv), __LINE__); 
 	checkCuda( cudaMalloc(&d_recv_slens, sizeof(unsigned char) * totrecv), __LINE__);
-		num_keys = 0;
+	size_t num_keys = 0;
 	for(uint64_t i= 0; i < nprocs ; ++i) {
-		cout << "recv count "<<  totrecv <<" " << n_kmers*2 << endl;
 		if(totrecv > 0) {
 		checkCuda( cudaMemcpy(d_recv_smers + num_keys, &recvbuf[i * p_buff_len], sizeof(keyType) * recvcnt[i], cudaMemcpyHostToDevice), __LINE__); 
 		checkCuda( cudaMemcpy(d_recv_slens + num_keys, &recvbuf_len[i * p_buff_len], sizeof(unsigned char) * recvcnt[i], cudaMemcpyHostToDevice), __LINE__); 
@@ -900,7 +894,7 @@ double GPU_DealWithInMemoryData(vector<keyType> & mykmers_GPU, int pass, struct 
     // Insert items into the hash table
     // insert_hashtable(pHashTable, mykmers_GPU.data(), (uint32_t)mykmers_GPU.size(), myrank);
 	// insert_hashtable_cpu(mykmers_GPU.data(), (uint32_t)mykmers_GPU.size());
-	
+	size_t num_keys = nkmers_gpu;
 	insert_hashtable(pHashTable, device_keys, num_keys, myrank);
 
     double t_count1 = MPI_Wtime() - t_count;
@@ -1491,9 +1485,11 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
                 double pack_t = MPI_Wtime() - exch_start_t;
                 tot_pack += pack_t;
 
+                // ParseNPack_supermer(seqs, tmp_offset, offset);
+                
                 double exch_start_t_GPU = MPI_Wtime();
-                // GPU_ParseNPack(seqs, outgoing, exchangeAndCountPass, tmp_offset);    // no-op if seqs.size() == 0
-                GPU_supermer(seqs, outgoing, exchangeAndCountPass, tmp_offset, offset);    // no-op if seqs.size() == 0
+                GPU_ParseNPack(seqs, outgoing, exchangeAndCountPass, tmp_offset);    // no-op if seqs.size() == 0
+                // GPU_supermer(seqs, outgoing, exchangeAndCountPass, tmp_offset, offset);    // no-op if seqs.size() == 0
                
                 double pack_t_GPU = MPI_Wtime() - exch_start_t_GPU;
                 tot_pack_GPU += pack_t_GPU;
@@ -1508,7 +1504,7 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
                 double exch_t = 0;//Exchange(outgoing, readids, positions, extquals, extseqs, mykmers, myreadids, mypositions, /*myquals, myseqs,*/ exchangeAndCountPass, scratch1, scratch2); // outgoing arrays will be all empty, shouldn't crush
 				tot_exch += exch_t;
 				
-				double exch_t_GPU = 0;//GPU_Exchange(outgoing, kmers_GPU, exchangeAndCountPass); // outgoing arrays will be all empty, shouldn't crush
+				double exch_t_GPU = GPU_Exchange(outgoing, kmers_GPU, exchangeAndCountPass); // outgoing arrays will be all empty, shouldn't crush
 				tot_exch_GPU += exch_t_GPU;
 #ifdef DEBUG
                // if(myrank==0) cout << "Finished Exchange pass " << exchangeAndCountPass << endl;
@@ -1525,7 +1521,7 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
                 }
                 // DealWithInMemoryData(mykmers, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
 // #ifdef GPU
-                double process_t_GPU = 0;//GPU_DealWithInMemoryData(kmers_GPU, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
+                double process_t_GPU = GPU_DealWithInMemoryData(kmers_GPU, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
 				tot_process_GPU += process_t_GPU;
 
 				// #endif
