@@ -205,10 +205,12 @@ void parse_supermer_N_build_kmercounter(vector<uint64_t> c_smer, vector<unsigned
 }
 
 std::unordered_map<std::string,uint64_t> kcounter_cpu; 
+std::unordered_map<std::uint64_t,uint64_t> kcounter_cpu_num;
 void parse_supermer_N_build_kmercounter(uint64_t* recvbuf, unsigned char* len_smers, int* recvcnt, int p_buff_len){
 
    std::vector<uint64_t> kmers_compressed;
-
+   int klen = KMER_LENGTH;
+   uint64_t mask = pow(2, 2*klen) - 1;
    	for(uint64_t i= 0; i < nprocs ; ++i) 
    	{
 		for(uint64_t j= 0; j <  recvcnt[i] ; ++j)
@@ -217,28 +219,44 @@ void parse_supermer_N_build_kmercounter(uint64_t* recvbuf, unsigned char* len_sm
    			unsigned char c = len_smers[i * p_buff_len + j];
    			int slen = (int)c;
 	   		string d_smer = decompress_smer(cur_csmer, c);
-	   		// if(j < 5)
-	   		// 	cout << myrank << ": smer: " << d_smer << " len:" << c << endl;
-	   		
+	   		int nkmer = slen - KMER_LENGTH + 1;
+// (c_kmer) >> (2*(31-j))) & 0x03 )
+	   		// if(myrank == 0 && j < 1 && i == 1) cout << d_smer << " " << slen << endl;
 		    for(int k = 0; k < slen - KMER_LENGTH + 1; ++k) {
+		    	uint64_t cur_ckmer =  (cur_csmer >> (2*(31-(klen+k -1)))) & mask; //Assume LSB
 
 		    	string cur_kmer = d_smer.substr(k, KMER_LENGTH);
-		    	
+		    	if(j < 1 && myrank == 0 && i == 1)
+	   				cout << myrank << ": kmer: " << cur_kmer << " decm: " << decompress_smer(cur_ckmer, 32) << endl;
+		    	auto found_num = kcounter_cpu_num.find(cur_ckmer);
 		    	auto found = kcounter_cpu.find(cur_kmer);// == kcounter_cpu.end() )
 		    	if(found != kcounter_cpu.end())
 		    		found->second += 1;
 		    	else kcounter_cpu.insert({cur_kmer,1}); 
+
+		    	if(found_num != kcounter_cpu_num.end())
+		    		found_num->second += 1;
+		    	else kcounter_cpu_num.insert({cur_ckmer,1}); 
 			}
+			
 		}
 	}
 
-    uint64_t totalPairs = 0, HTsize= 0;
+    uint64_t totalPairs = 0, HTsize= 0, totalPairs_num = 0, HTsize_num= 0;
 	for ( auto it = kcounter_cpu.begin(); it!= kcounter_cpu.end(); ++it )
 	{
 		// if(it->second > 1)
 		{
-		HTsize++;
+		HTsize++; 
 		totalPairs += it->second;
+		}
+	}
+		for ( auto it = kcounter_cpu_num.begin(); it!= kcounter_cpu_num.end(); ++it )
+	{
+		// if(it->second > 1)
+		{
+		HTsize_num++; 
+		totalPairs_num += it->second;
 		}
 	}
 	
@@ -251,9 +269,14 @@ void parse_supermer_N_build_kmercounter(uint64_t* recvbuf, unsigned char* len_sm
     // CHECK_MPI( MPI_Reduce(&nkmers_thisBatch, &allrank_kmersthisbatch, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
     CHECK_MPI( MPI_Reduce(&nkmers_sofar, &allrank_kmersprocessed, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
 
-    if(myrank == 0)
-    std::cout << "rank: " << myrank << ", Smer+len exch- : HTsize: " << allrank_hashsize 
-    	<< " #kmers from HT: " << allrank_totalPairs << ", ideal #kmers: " << allrank_kmersprocessed << std::endl;
+    // if(myrank == 0)
+	std::cout << "rank: " << myrank << ", Smer+len exch- : HTsize: " << HTsize << " ? " << HTsize_num 
+    	<< " #kmers from HT: " << totalPairs << " ? " << totalPairs_num << ", ideal #kmers: " << allrank_kmersprocessed << std::endl;
+    
+
+    // if(myrank == 0)
+    // std::cout << "rank: " << myrank << ", Smer+len exch- : HTsize: " << allrank_hashsize 
+    // 	<< " #kmers from HT: " << allrank_totalPairs << ", ideal #kmers: " << allrank_kmersprocessed << std::endl;
     return;// kmers;
 }
 
@@ -567,7 +590,6 @@ size_t build_supermer(vector<string> seqs, size_t offset)
 	Kmer::set_k(17);
 
 	size_t nreads = seqs.size(), max_slen = 0;
-		cout << "Offset, nreads " <<  offset << " " << nreads << endl;
 	vector<string> supermers;
 	vector<uint64_t> c_supermers; //compressed supermers
 	vector<unsigned char> len_smers; //length of c_supermers 
@@ -699,55 +721,57 @@ size_t build_supermer(vector<string> seqs, size_t offset)
 	// 	cout << it->second << " ";
 	// }
 	// cout  << "\ntotl ele in hist " << tot_hist << endl;
-	
-	// for (int p = 0; p < nprocs; ++p)
-	// 	cout << sendcnt[p] << " ";
-	// cout << endl;
-
-	// Supermer stats
-	total_supermers += supermers.size();
-	// cout << "#supermers: " << c_supermers.size() << " " << supermers.size() << endl;
-
-	unsigned char *recv_slen = (unsigned char*) malloc(n_kmers * 2 * sizeof(unsigned char)); 
-	uint64_t *recv_smers = (uint64_t*) malloc(n_kmers * 2 * sizeof(uint64_t)); 
-	
-	Exchange_supermers(outgoing_csmers, outgoing_lensmers, recv_smers, recv_slen, sendcnt, recvcnt, n_kmers);
-// 
-	// cout << "After exchange: " << endl;
-	int totssmer = 0, totrsmer = 0;
+	int totssmer = 0;
 	for (int i = 0; i < nprocs; ++i)
-	{
 		totssmer += sendcnt[i];
-		totrsmer += recvcnt[i];
-		// cout << "from main(): proc " << myrank << ": #sendcnt  " << sendcnt[i] << ", #recvcnt: " << recvcnt[i]  << "; ";
-	}
-	// cout << "\nTotal send-recv count " << totssmer << " " << totrsmer << endl;
-	parse_supermer_N_build_kmercounter(recv_smers, recv_slen, recvcnt, p_buff_len);
-	// parse_supermer_N_build_kmercounter(c_supermers, len_smers, recvcnt, p_buff_len);
+
+	cout << "CPU totsmer: " <<  totssmer << ", smer distribution: avg: " << totssmer/nprocs << endl;
+// 	for (int p = 0; p < nprocs; ++p)
+// 		cout << p << ": " << sendcnt[p] << ", ";
+// 	cout << endl;
+
+// 	// Supermer stats
+// 	total_supermers += supermers.size();
+// 	// cout << "#supermers: " << c_supermers.size() << " " << supermers.size() << endl;
+
+// 	unsigned char *recv_slen = (unsigned char*) malloc(n_kmers * 2 * sizeof(unsigned char)); 
+// 	uint64_t *recv_smers = (uint64_t*) malloc(n_kmers * 2 * sizeof(uint64_t)); 
+	
+// 	Exchange_supermers(outgoing_csmers, outgoing_lensmers, recv_smers, recv_slen, sendcnt, recvcnt, n_kmers);
+// // 
+// 	// cout << "After exchange: " << endl;
+// 	int totrsmer = 0;
+// 	for (int i = 0; i < nprocs; ++i)
+// 		totrsmer += recvcnt[i];
+
+// 	// cout << "\nTotal send-recv count " << totssmer << " " << totrsmer << endl;
+// 	parse_supermer_N_build_kmercounter(recv_smers, recv_slen, recvcnt, p_buff_len);
+// 	// parse_supermer_N_build_kmercounter(c_supermers, len_smers, recvcnt, p_buff_len);
 
 
-	/*********Correctness check*******/
-	for (int j = 0; j < supermers.size(); ++j)
-	{
-		string d_kmer = decompress_smer(c_supermers[j], len_smers[j]);
+// 	/*********Correctness check*******/
+// 	for (int j = 0; j < supermers.size(); ++j)
+// 	{
+// 		string d_kmer = decompress_smer(c_supermers[j], len_smers[j]);
 			   		
-		// if(supermers[j] != d_kmer)
-			// cout << j << ": Didnt match " << supermers[j] << " " << d_kmer << endl;
-		// else
-		// 	cout << j << ": Matched " << supermers[j] << " " << d_kmer << endl;
-		// cout << i << ": "  << supermers[i] <<" " << c_supermers[i] << " " << decompress_smer(c_supermers[i], len_smers[i]) << " " << len_smers[i] << endl; 
-		// size_t slen = supermers[j].length();
-		// max_slen = std::max(max_slen, slen);
-		// supermer_bins[(slen - KMER_LENGTH)]++;
-		// tot_char += slen;
-	}
-	// supermers.clear();
- //    std::cout << std::setw(30);
-	// cout << "#supermers: " << total_supermers <<", Total length of all supermers: " 
-	// 	<< tot_char << ", #kmers: " << total_kmers <<", len of longest supermer: " << max_slen << endl;
-	// for (int j = 0; j < 20; ++j)
-	// 	cout << "#supermers between length " << j+KMER_LENGTH << " - " << j+1+KMER_LENGTH << " " << supermer_bins[j] << endl;
-	free(recv_slen); free(recv_smers); free(outgoing_csmers); free(outgoing_lensmers);
+// 		// if(supermers[j] != d_kmer)
+// 			// cout << j << ": Didnt match " << supermers[j] << " " << d_kmer << endl;
+// 		// else
+// 		// 	cout << j << ": Matched " << supermers[j] << " " << d_kmer << endl;
+// 		// cout << i << ": "  << supermers[i] <<" " << c_supermers[i] << " " << decompress_smer(c_supermers[i], len_smers[i]) << " " << len_smers[i] << endl; 
+// 		// size_t slen = supermers[j].length();
+// 		// max_slen = std::max(max_slen, slen);
+// 		// supermer_bins[(slen - KMER_LENGTH)]++;
+// 		// tot_char += slen;
+// 	}
+// 	// supermers.clear();
+//  //    std::cout << std::setw(30);
+// 	// cout << "#supermers: " << total_supermers <<", Total length of all supermers: " 
+// 	// 	<< tot_char << ", #kmers: " << total_kmers <<", len of longest supermer: " << max_slen << endl;
+// 	// for (int j = 0; j < 20; ++j)
+// 	// 	cout << "#supermers between length " << j+KMER_LENGTH << " - " << j+1+KMER_LENGTH << " " << supermer_bins[j] << endl;
+	// free(recv_slen); free(recv_smers); 
+	free(outgoing_csmers); free(outgoing_lensmers);
 	delete[] sendcnt; delete[] recvcnt;
 	return nreads;
 }

@@ -23,6 +23,6 @@ typedef unsigned long long int keyType;
 
 size_t build_supermer(vector<string> seqs, size_t offset); 
 void getSupermers_GPU(char* seq, int klen, int mlen, int nproc, int *owner_counter, 
-	keyType* h_send_smers, unsigned char* h_send_slens, int rank );
-void kcounter_supermer_GPU(KeyValue* pHashTable, keyType* d_smers, unsigned char* d_slen, uint32_t num_keys, int rank);
+	keyType* h_send_smers, unsigned char* h_send_slens, int n_kmers, int rank );
+void kcounter_supermer_GPU(KeyValue* pHashTable, keyType* d_smers, unsigned char* d_slen, uint32_t num_keys, int klen, int rank);
 #endif

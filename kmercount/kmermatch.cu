@@ -252,8 +252,7 @@ size_t ParseNPack(vector<string> & seqs, vector<string> names, vector<string> & 
     DBG("ParseNPack(seqs %lld, qals %lld, out %lld, extq %lld, exts %lld, pass %d, offset %lld)\n", (lld) seqs.size(), (lld) quals.size(), (lld) outgoing.size(), (lld) extquals.size(), (lld) extseqs.size(), pass, (lld) offset);
 
     ReadId readIndex = startReadIndex;
-    cout << "Offset, nreads original " <<  offset << " " << nreads << endl;
-
+    
 	build_supermer(seqs, offset);
 	
 	for(size_t i=offset; i< nreads; ++i)
@@ -306,13 +305,17 @@ size_t ParseNPack(vector<string> & seqs, vector<string> names, vector<string> & 
     assert(startReadIndex > 0);
 #endif
 */
+    for (int i=0; i < nprocs; i++) {
+    	outgoing[i].clear(); // CPU parseNPack is populating this..remove when that call is removed
+    }
+
 	LOGF("ParseNPack got through %lld reads (of %lld) and skipped %lld reads, total %lld kmers\n", (lld) nreads, (lld) seqs.size(), (lld) nskipped, (lld) kmersthisbatch);
 	MPI_Pcontrol(-1,"ParseNPack");
 	return nreads;
 }
-keyType *d_recv_smers;
-unsigned char *d_recv_slens;
-uint64_t* Exchange_GPUsupermers(keyType* outgoing, unsigned char* len_smers, int *sendcnt, int *recvcnt, int n_kmers);
+keyType *d_recv_smers = NULL;
+unsigned char *d_recv_slens = NULL;
+void Exchange_GPUsupermers(keyType* outgoing, unsigned char* len_smers, int *sendcnt, int *recvcnt, int n_kmers);
 double GPUtime=0;
 uint64_t *sendbuf_GPU = NULL;
 int * owner_counter; 
@@ -320,7 +323,7 @@ int MINIMIZER_LENGTH = 5;
 
 size_t GPU_ParseNPack(vector<string> & seqs, vector< vector<Kmer> > & outgoing, int pass, size_t offset)
 {
-	        	// test_cuda();
+
 	MPI_Pcontrol(1,"ParseNPack");
 	size_t nreads = seqs.size();
 	size_t nskipped = 0;
@@ -376,19 +379,18 @@ size_t GPU_ParseNPack(vector<string> & seqs, vector< vector<Kmer> > & outgoing, 
 
 	nkmers_processed += nkmers_thisBatch;
 
-
-    for (int i=0; i < nprocs; i++) {
-    	outgoing[i].clear(); // CPU parseNPack is populating this..remove when that call is removed
-    }
 	MPI_Pcontrol(-1,"ParseNPack");
 	return nreads;
 }
 
-size_t GPU_supermer(vector<string> & seqs, vector< vector<Kmer> > & outgoing, int pass, size_t offset)
+uint64_t nkmers_smer_batch = 0;
+uint64_t nkmers_smer_all = 0;
+size_t GPU_supermer(vector<string> & seqs, vector< vector<Kmer> > & outgoing, int pass, size_t offset, int endoffset)
 {
-	        	// test_cuda();
+	
 	MPI_Pcontrol(1,"ParseNPack");
-	size_t nreads = seqs.size();
+	if(myrank == 0) cout << "FIX IT" << endl;
+	size_t nreads = endoffset;// seqs.size(), max_slen = 0;
 	size_t nskipped = 0;
 	size_t maxsending = 0, kmersthisbatch = 0;
 	size_t bytesperkmer = Kmer::numBytes();
@@ -398,7 +400,7 @@ size_t GPU_supermer(vector<string> & seqs, vector< vector<Kmer> > & outgoing, in
 	int * recvcnt = new int[nprocs];
 	int * sendcnt = new int[nprocs];
 	memset(sendcnt, 0, sizeof(int) * nprocs);
-    nkmers_thisBatch = 0;
+    nkmers_smer_batch = 0;
     uint64_t all_seq_size = 0;
     for(size_t i=offset; i< nreads; ++i){
     	if (seqs[i].length() <= KMER_LENGTH) continue;
@@ -416,18 +418,19 @@ size_t GPU_supermer(vector<string> & seqs, vector< vector<Kmer> > & outgoing, in
 			nskipped++;
 			continue;
 		}
-		nkmers_thisBatch += seqs[i].length() - KMER_LENGTH + 1;
-		int approx_maxsending = (4 * nkmers_thisBatch + nprocs - 1)/nprocs;
+		nkmers_smer_batch += seqs[i].length() - KMER_LENGTH + 1;
+		nkmers_smer_all += nkmers_smer_batch;
+		// int approx_maxsending = (4 * nkmers_smer_batch + nprocs - 1)/nprocs;
 
 		strcpy(seqs_arr + rd_offset, seqs[i].c_str()); 
 		rd_offset += seqs[i].length();
 		strcpy(seqs_arr + rd_offset, "a");
 		rd_offset++;	
 		
-		if (approx_maxsending * bytesperentry >= memoryThreshold || (nkmers_thisBatch + seqs[i].length()) * bytesperentry >= MAX_ALLTOALL_MEM) { 
-			nreads = i+1; // start with next read
-			break;
-		}
+		// if (approx_maxsending * bytesperentry >= memoryThreshold || (nkmers_smer_batch + seqs[i].length()) * bytesperentry >= MAX_ALLTOALL_MEM) { 
+		// 	nreads = i+1; // start with next read
+		// 	break;
+		// }
 	}
 	owner_counter = (int*) malloc (nprocs * sizeof(int)) ;
 	memset(owner_counter, 0, nprocs * sizeof(int));
@@ -436,24 +439,27 @@ size_t GPU_supermer(vector<string> & seqs, vector< vector<Kmer> > & outgoing, in
 		free(seqs_arr);
 		return nreads;
 	} 
-	keyType *h_send_smers       = (keyType *) malloc ( nkmers_thisBatch * 2 * sizeof(keyType));
-	unsigned char *h_send_slens = (unsigned char *) malloc ( nkmers_thisBatch * 2 * sizeof(unsigned char));
+
+	keyType *h_send_smers       = (keyType *) malloc ( nkmers_smer_batch * 2 * sizeof(keyType));
+	unsigned char *h_send_slens = (unsigned char *) malloc ( nkmers_smer_batch * 2 * sizeof(unsigned char));
 	
 	//***** Build Supermers on GPU *****
-	getSupermers_GPU(seqs_arr, KMER_LENGTH, MINIMIZER_LENGTH, nprocs, owner_counter, h_send_smers, h_send_slens, myrank);
+	getSupermers_GPU(seqs_arr, KMER_LENGTH, MINIMIZER_LENGTH, nprocs, owner_counter, h_send_smers, h_send_slens, nkmers_smer_batch,  myrank);
 	
 	//***** Exchange supermers on CPU *****
-	Exchange_GPUsupermers(h_send_smers, h_send_slens, sendcnt, recvcnt, nkmers_thisBatch);
-	
+	Exchange_GPUsupermers(h_send_smers, h_send_slens, sendcnt, recvcnt, nkmers_smer_batch);
+
 	//***** Parse supermers and build kcounter on GPU *****
 	size_t num_keys = 0;
 	for(uint64_t i= 0; i < nprocs ; ++i) 
 		num_keys += recvcnt[i];	
-	
-	kcounter_supermer_GPU(pHashTable, d_recv_smers, d_recv_slens, num_keys, myrank);
+	cout << myrank << ": GPU recvd smers: " << num_keys << endl;
+
+	kcounter_supermer_GPU(pHashTable, d_recv_smers, d_recv_slens, num_keys, KMER_LENGTH, myrank);
   	std::vector<KeyValue> h_pHashTable(kHashTableCapacity);
 	cudaMemcpy(h_pHashTable.data(), pHashTable, sizeof(KeyValue) * kHashTableCapacity, cudaMemcpyDeviceToHost); 
-
+    // cudaFree(d_recv_slens);
+    // cudaFree(d_recv_smers);
    	uint64_t HTsize = 0, totalPairs= 0;  
     for (int i = 0; i < kHashTableCapacity; ++i)
     {
@@ -464,9 +470,24 @@ size_t GPU_supermer(vector<string> & seqs, vector< vector<Kmer> > & outgoing, in
     	}
     }
 
-	getKmers_test(seqs_arr);
+    size_t allrank_hashsize = 0, allrank_totalPairs = 0;
+    CHECK_MPI( MPI_Reduce(&HTsize, &allrank_hashsize,  1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
+    CHECK_MPI( MPI_Reduce(&totalPairs, &allrank_totalPairs, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
+  
+	size_t allrank_kmersthisbatch = 0;
+	size_t allrank_kmersprocessed = 0;
+    CHECK_MPI( MPI_Reduce(&nkmers_smer_batch, &allrank_kmersthisbatch, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
+    CHECK_MPI( MPI_Reduce(&nkmers_smer_all, &allrank_kmersprocessed, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
+    // cout << myrank << " local GPU HT size " << HTsize << " pair " << totalPairs << endl;
+   if(myrank == 0){
+    	cout << "\nBatch: " << batch <<" - GPU HTsize: " 
+		<< allrank_hashsize << ", #kmers from supermers based GPU_HT: " << allrank_totalPairs 
+		<< " ideal #kmers " << allrank_kmersthisbatch << endl;
+    }
+
+	getKmers_test(seqs_arr); 
 	free(seqs_arr);
-	nkmers_processed += nkmers_thisBatch;
+
 
 	MPI_Pcontrol(-1,"ParseNPack");
 	return nreads;
@@ -712,7 +733,7 @@ double GPU_Exchange(vector< vector<Kmer> > & outgoing, vector<keyType> & mykmers
 	return tot_exch_time;
 }
 
-uint64_t* Exchange_GPUsupermers(keyType* outgoing, unsigned char* len_smers, int *sendcnt, int *recvcnt, int n_kmers)
+void Exchange_GPUsupermers(keyType* outgoing, unsigned char* len_smers, int *sendcnt, int *recvcnt, int n_kmers)
 {
 	MPI_Pcontrol(1,"Exchange");
 	double tot_exch_time = MPI_Wtime();
@@ -723,12 +744,14 @@ uint64_t* Exchange_GPUsupermers(keyType* outgoing, unsigned char* len_smers, int
 	int * rdispls = new int[nprocs];
 	// int * recvcnt = new int[nprocs];
 
-    cout << "Exchange GPU supermers " << endl;
+    // cout << "Exchange GPU supermers " << endl;
     int size = nprocs;
     for (int i=0; i < nprocs; i++) {
     	// outgoing[i].clear(); // CPU parseNPack is populating this..remove when that call is removed
         sendcnt[i] = owner_counter[i];
+        cout << "GPU smer send count " << owner_counter[i] << " ";
     }
+    cout << endl;
     free(owner_counter);
    
 	CHECK_MPI( MPI_Alltoall(sendcnt, 1, MPI_INT, recvcnt, 1, MPI_INT, MPI_COMM_WORLD) );  // share the request counts
@@ -758,20 +781,21 @@ uint64_t* Exchange_GPUsupermers(keyType* outgoing, unsigned char* len_smers, int
 	exch_time = MPI_Wtime() - exch_time;
 	// tot_exch_time_smer += exch_time;
 
-
-	( cudaMalloc(&d_recv_smers, sizeof(keyType) * totrecv)); 
-	( cudaMalloc(&d_recv_slens, sizeof(unsigned char) * totrecv)); 
-		
+// checkCuda (cudaMalloc(&d_supermers, n_kmers * buff_scale * sizeof(keyType)), __LINE__); 
+	checkCuda( cudaMalloc(&d_recv_smers, sizeof(keyType) * totrecv), __LINE__); 
+	checkCuda( cudaMalloc(&d_recv_slens, sizeof(unsigned char) * totrecv), __LINE__);
+		num_keys = 0;
 	for(uint64_t i= 0; i < nprocs ; ++i) {
-		( cudaMemcpy(d_recv_slens + num_keys, &recvbuf[i * p_buff_len], sizeof(keyType) * recvcnt[i], cudaMemcpyHostToDevice)); 
-		( cudaMemcpy(d_recv_slens + num_keys, &recvbuf_len[i * p_buff_len], sizeof(unsigned char) * recvcnt[i], cudaMemcpyHostToDevice)); 
-		
+		cout << "recv count "<<  totrecv <<" " << n_kmers*2 << endl;
+		if(totrecv > 0) {
+		checkCuda( cudaMemcpy(d_recv_smers + num_keys, &recvbuf[i * p_buff_len], sizeof(keyType) * recvcnt[i], cudaMemcpyHostToDevice), __LINE__); 
+		checkCuda( cudaMemcpy(d_recv_slens + num_keys, &recvbuf_len[i * p_buff_len], sizeof(unsigned char) * recvcnt[i], cudaMemcpyHostToDevice), __LINE__); 
+		}
 		num_keys += recvcnt[i];	
 	}
-
-	if(totsend > 0)  free(sendbuf_GPU);
+ 	
+	if(totsend > 0)  {free(outgoing); free(len_smers);}
 	if(totrecv > 0)  {free(recvbuf); free(recvbuf_len);}
-
 	DBG("DeleteAll: recvcount=%lld, sendct=%lld\n", (lld) recvcnt, (lld) sendcnt);
 	// DeleteAll(rdispls, sdispls, recvcnt, sendcnt);
 	delete(rdispls); delete(sdispls); 
@@ -780,7 +804,7 @@ uint64_t* Exchange_GPUsupermers(keyType* outgoing, unsigned char* len_smers, int
     // exchange_iter++;
     tot_exch_time=MPI_Wtime()-tot_exch_time-performance_report_time;
 	MPI_Pcontrol(-1,"Exchange");
-	return recvbuf;
+	return;
 }
 
 /* Start GPU stuff by IN */
@@ -1468,7 +1492,9 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
                 tot_pack += pack_t;
 
                 double exch_start_t_GPU = MPI_Wtime();
-                GPU_ParseNPack(seqs, outgoing, exchangeAndCountPass, tmp_offset);    // no-op if seqs.size() == 0
+                // GPU_ParseNPack(seqs, outgoing, exchangeAndCountPass, tmp_offset);    // no-op if seqs.size() == 0
+                GPU_supermer(seqs, outgoing, exchangeAndCountPass, tmp_offset, offset);    // no-op if seqs.size() == 0
+               
                 double pack_t_GPU = MPI_Wtime() - exch_start_t_GPU;
                 tot_pack_GPU += pack_t_GPU;
 
