@@ -146,7 +146,7 @@ __global__ void gpu_hashtable_insert(KeyValue* hashtable,
     if (threadid < numkvs)
     {
         keyType new_key = kvs[threadid];//.key;
-        keyType slot = cuda_murmur3_64(new_key);
+        keyType slot = cuda_murmur3_64(new_key) & (kHashTableCapacity-1);
         // if(filter.has(new_key))
         {
 
@@ -415,7 +415,7 @@ __global__ void gpu_hashtable_lookup(KeyValue* hashtable, KeyValue* kvs, unsigne
     if (threadid < kHashTableCapacity)
     {
         uint32_t key = kvs[threadid].key;
-        uint32_t slot = cuda_murmur3_32(key);
+        uint32_t slot = cuda_murmur3_32(key) & (kHashTableCapacity-1);
 
         while (true)
         {
@@ -479,7 +479,7 @@ __global__ void gpu_hashtable_delete(KeyValue* hashtable, const KeyValue* kvs, u
     if (threadid < kHashTableCapacity)
     {
         uint32_t key = kvs[threadid].key;
-        uint32_t slot = cuda_murmur3_32(key);
+        uint32_t slot = cuda_murmur3_32(key) & (kHashTableCapacity-1);
 
         while (true)
         {

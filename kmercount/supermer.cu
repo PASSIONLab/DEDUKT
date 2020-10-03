@@ -200,7 +200,7 @@ void getSupermers_GPU(char* seq, int klen, int mlen, int nproc, int *owner_count
     int g = (seq_len + (b -1) ) / (b);// * window;
     // g = (g+window-1)/window;
     int per_block_seq_len = b * window;// ((seq_len+window-1/window) + (g - 1)) / g;
-    cout << seq_len << "  info " << g << " " << per_block_seq_len << endl;
+    // cout << seq_len << "  info " << g << " " << per_block_seq_len << endl;
 
     // Kernel call
     cuda_build_supermer<<<g, b>>>(d_seq, d_kmers, klen, mlen, seq_len, d_supermers, d_slen, d_owner_counter, nproc, p_buff_len, per_block_seq_len);
@@ -240,11 +240,8 @@ __global__ void cu_kcounter_smer(KeyValue* hashtable, const keyType* kvs, const 
         for(int k = 0; k < (slen - klen + 1); ++k)
         {
             keyType new_key = ((new_smer) >> (2*(31-(klen+k -1)))) & mask;//kvs[threadid];//.key;
-           
-            // if(threadid < 500 && slen > 17 && k > 0)
-            // printf("GPU %d %d: %lu %lu %d\n", threadid, k, new_smer, new_key, slen - klen + 1);
-            
-            keyType slot = cuda_murmur3_64(new_key);
+             
+            keyType slot = cuda_murmur3_64(new_key) & (kHashTableCapacity-1);
             
             while (true){
                 keyType old_key = atomicCAS(&hashtable[slot].key, kEmpty, new_key);

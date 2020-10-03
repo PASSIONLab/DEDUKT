@@ -48,7 +48,7 @@ inline __device__ keyType cuda_murmur3_32(keyType k) //TODO:: for now just chang
     k ^= k >> 13;
     k *= 0xc2b2ae35;
     k ^= k >> 16;
-    return k & (kHashTableCapacity-1);
+    return k;// & (kHashTableCapacity-1);
 }
 
 inline __device__ keyType cuda_murmur3_64( uint64_t k )
@@ -59,7 +59,7 @@ inline __device__ keyType cuda_murmur3_64( uint64_t k )
   k *= BIG_CONSTANT(0xc4ceb9fe1a85ec53);
   k ^= k >> 33;
 
-  return k & (kHashTableCapacity-1);
+  return k;// & (kHashTableCapacity-1);
 }
 
 
