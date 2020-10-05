@@ -20,7 +20,7 @@ typedef unsigned long long int keyType;
 
 
 
-
+uint64_t find_minimizer(uint64_t kmer, int &order);
 size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset); 
 void getSupermers_GPU(char* seq, int klen, int mlen, int nproc, int *owner_counter, 
 	keyType* h_send_smers, unsigned char* h_send_slens, int n_kmers, int rank );

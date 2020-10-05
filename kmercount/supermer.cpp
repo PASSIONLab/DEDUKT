@@ -253,6 +253,8 @@ void parse_supermer_N_build_kmercounter(uint64_t* recvbuf, unsigned char* len_sm
 		    for(int k = 0; k < slen - KMER_LENGTH + 1; ++k) {
 		    	uint64_t cur_ckmer =  (cur_csmer >> (2*(31-(klen+k -1)))) & mask; //Assume LSB
 
+		    	// uint64_t cur_ckmer =  (cur_csmer >> (2*(31-(klen+k -1)))) ; //Assume LSB
+
 		    	string cur_kmer = d_smer.substr(k, KMER_LENGTH);
 		    	// if(j < 1 && myrank == 0 && i == 1)
 	   			// 	cout << myrank << ": kmer: " << cur_kmer << " decm: " << decompress_smer(cur_ckmer, 32) << endl;
@@ -270,20 +272,13 @@ void parse_supermer_N_build_kmercounter(uint64_t* recvbuf, unsigned char* len_sm
 	}
 
     uint64_t totalPairs = 0, HTsize= 0, totalPairs_num = 0, HTsize_num= 0;
+    // for ( auto it = kcounter_cpu_num.begin(); it!= kcounter_cpu_num.end(); ++it )
 	for ( auto it = kcounter_cpu.begin(); it!= kcounter_cpu.end(); ++it )
 	{
 		// if(it->second > 1)
 		{
 		HTsize++; 
 		totalPairs += it->second;
-		}
-	}
-		for ( auto it = kcounter_cpu_num.begin(); it!= kcounter_cpu_num.end(); ++it )
-	{
-		// if(it->second > 1)
-		{
-		HTsize_num++; 
-		totalPairs_num += it->second;
 		}
 	}
 	
@@ -536,7 +531,7 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset)
 	int window = 32 - KMER_LENGTH;
 
 	for(size_t i=offset; i< nreads; ++i)
-	{	//	cout << "klen " <<  KMER_LENGTH << endl;	
+	{		
 		if (seqs[i].length() <= KMER_LENGTH) { // skip too short seqs
 			continue;
 		}
@@ -570,16 +565,16 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset)
 	
 		for (int c = 1; c < seqs[i].length()-KMER_LENGTH+1; ++c)
 		{ 
+			if(w == window) w = 0;
 			cur_kmer = seqs[i].substr(c, KMER_LENGTH);
 			compressed_kmer = compress_kmer(cur_kmer);
 			order = c;
 			// minimizer = find_minimizer(cur_kmer, order);
 			compressed_mini = find_minimizer(compressed_kmer, order);
-			
+			char s;
 			// if(minimizer == prev_minimizer && order == prev_order) {
 			if(compressed_mini == compressed_prev_mini && w < window) {				
-				w++;
-				char s = seqs[i][c+KMER_LENGTH-1];
+				s = seqs[i][c+KMER_LENGTH-1];
 				supermers[supermers.size()-1] += s;		
 				
 				int k = cur_slen;
@@ -596,7 +591,7 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset)
 				outgoing_lensmers[owner * p_buff_len + sendcnt[owner] - 1] = (unsigned char)cur_slen;
 
 				// new supermer starts
-				compressed_supermer = compress_kmer(cur_kmer);
+				compressed_supermer = compressed_kmer;// compress_kmer(cur_kmer);
 				cur_slen = KMER_LENGTH;
 				supermers.push_back(cur_kmer);
 				c_supermers.push_back(compressed_supermer);	
@@ -608,11 +603,11 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset)
 				outgoing_csmers[owner * p_buff_len + sendcnt[owner]] = compressed_supermer;
 				outgoing_lensmers[owner * p_buff_len + sendcnt[owner]] = (unsigned char)cur_slen;
 				sendcnt[owner]++;
-				w = 0;	 
 			}
 			compressed_prev_mini = compressed_mini;
 			// prev_minimizer = minimizer;
 			prev_order = order;
+			w++;
 		}
 		c_supermers[supermers.size()-1] = compressed_supermer;
 		len_smers[len_smers.size()-1] = (unsigned char)cur_slen;	
@@ -637,9 +632,9 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset)
 		totssmer += sendcnt[i];
 
 	cout << myrank <<  " - CPUtotSENDsmer: " <<  totssmer << ", smer_avg_dist: " << totssmer/nprocs << "; per_proc: ";
-	for (int p = 0; p < nprocs; ++p)
-		cout << sendcnt[p] << " ";
-	cout << endl;
+	// for (int p = 0; p < nprocs; ++p)
+	// 	cout << sendcnt[p] << " ";
+	// cout << endl;
 
 	// Supermer stats
 
@@ -647,19 +642,19 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset)
 	unsigned char *recv_slen = (unsigned char*) malloc(n_kmers * 2 * sizeof(unsigned char)); 
 	uint64_t *recv_smers = (uint64_t*) malloc(n_kmers * 2 * sizeof(uint64_t)); 
 	
-	Exchange_supermers(outgoing_csmers, outgoing_lensmers, recv_smers, recv_slen, sendcnt, recvcnt, n_kmers);
+	// Exchange_supermers(outgoing_csmers, outgoing_lensmers, recv_smers, recv_slen, sendcnt, recvcnt, n_kmers);
 
 	int totrsmer = 0;
 	for (int i = 0; i < nprocs; ++i)
 		totrsmer += recvcnt[i];
-	cout << myrank <<  " - CPUtotRECVsmer: " <<  totrsmer << ", smer_avg_dist: " << totrsmer/nprocs << "; per_proc: ";
-	for (int p = 0; p < nprocs; ++p)
-		cout << recvcnt[p] << " ";
-	cout << endl;
+	// cout << myrank <<  " - CPUtotRECVsmer: " <<  totrsmer << ", smer_avg_dist: " << totrsmer/nprocs << "; per_proc: ";
+	// for (int p = 0; p < nprocs; ++p)
+	// 	cout << recvcnt[p] << " ";
+	// cout << endl;
 
 	//***** Parse supermers and build kcounter *****
-	parse_supermer_N_build_kmercounter(recv_smers, recv_slen, recvcnt, p_buff_len);
-	// parse_supermer_N_build_kmercounter(c_supermers, len_smers, recvcnt, p_buff_len);
+	// parse_supermer_N_build_kmercounter(recv_smers, recv_slen, recvcnt, p_buff_len);
+
 
 
 	/*********Correctness check*******/

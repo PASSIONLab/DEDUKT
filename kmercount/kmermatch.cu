@@ -201,6 +201,111 @@ string toString_custm(int64_t longs) {
 static int exchange_iter = 0;
 
 int batch = -1;
+
+
+void getSupermers_CPU(char* seq, int klen, int mlen, int nproc, int *owner_counter, 
+    keyType* h_send_smers, unsigned char* h_send_slens, int n_kmers, int rank ){
+
+    unsigned int seq_len = strlen(seq);
+
+    bool validKmer = false;
+
+    int window = 32 - klen;// - mlen + 1 ;
+    int grid = (seq_len + (128*window - 1) ) / (128*window);// * window;
+    // int per_block_seq_len = 128;
+    int order = 0;
+    cout << "info " << grid << " " << window << " " << n_kmers << endl; 
+
+    uint64_t counter = 0, match = 0;
+    
+    for(int g = 0; g < grid; ++g) {
+		
+		int st_char_grid = g * 128 * window ;
+		if((st_char_grid+klen - 1) >= n_kmers) break;
+    	
+    	for(int b = 0; b < 128; ++b) {
+    		validKmer = false; 
+    		int st_char_block = st_char_grid + b * window;
+    		if((st_char_block + klen - 1) >= n_kmers) break;
+			
+			uint64_t comprs_Kmer = 0; keyType comprs_Smer = 0;
+			keyType cur_mini = std::numeric_limits<uint64_t>::max();  
+    		keyType prev_mini = cur_mini;      		
+    		int i = st_char_block; bool inserted = false;
+		    
+		    int w = 0; 
+		    cout << "new window " << endl;
+		    for(; w < window; w++) {
+		    	if((st_char_block + w +klen - 1) >= n_kmers) return;
+       			char s; validKmer = false; 
+			    uint64_t comprs_Kmer = 0; 
+				for (int k = 0; k < KMER_LENGTH; ++k) {			
+		   
+				    s = seq[ i + w + k];
+			        if(s == 'a' || s == 'N') { 
+			        	w+=KMER_LENGTH-1;
+			            validKmer = false; break;
+			        }
+			        else validKmer = true;
+			        int j = k % 32;
+			        size_t x = ((s) & 4) >> 1;
+			        comprs_Kmer |= ((x + ((x ^ (s & 2)) >>1)) << (2*(31-j))); //make it longs[] to support larger kmer
+			    }		    
+			    if(validKmer){
+	                if(w == 0) {  
+	                	cur_mini = find_minimizer(comprs_Kmer, order);
+	                    comprs_Smer = comprs_Kmer; //slen = klen;
+	               	}
+	                else  {	 
+	                	cur_mini = find_minimizer(comprs_Kmer, order);   
+                         
+	                    if(prev_mini == cur_mini ){
+	                    	match++;
+	                    	// validKmer = true; 
+	                    	if((i+w) < 50) cout << "GPU smer: matched: " << s << " " << cur_mini << " " << comprs_Kmer << " " << counter <<" " << w << endl;
+	      	 
+	                    	inserted = false;                
+	                    }
+	                    else {                      
+	                    	counter++;
+	                    	if((i+w) < 50) cout << "GPU smer: new: " << s << " " << cur_mini << " " << comprs_Kmer << " " << counter <<" " << w << endl;
+	      	 
+	                        // validKmer = false; 
+	                        inserted = true;                  
+	                	}
+	                }
+	                prev_mini = cur_mini; 
+                }
+        //         else{
+        //         	cur_mini = std::numeric_limits<uint64_t>::max();  
+    				// prev_mini = cur_mini;
+        //         }
+    //             if((i + w + klen) >= n_kmers) {
+    //             	cout << "Similar CPU supermer: Total supermers: " <<  counter <<  " " << w <<endl;// if(i < 5)// toString_custm(kmers_compressed[i]);  
+				// 	return ; 
+				// }
+				if(validKmer && w == window - 1  ) {
+		     		counter++;
+		     		if((i) < 50) cout << "outside Similar CPU supermer: Total supermers: " <<  counter <<  " " << w <<endl;
+	                        
+
+		     	// cout << i+window << " " <<  n_kmers << " " << counter << endl;
+		     }	
+		    }
+		    cout << "Similar CPU supermer: Total supermers: " <<  counter <<  " " << match<<endl; // if(i < 5)// toString_custm(kmers_compressed[i]);  
+
+
+
+		    // if(validKmer) counter++;
+		}		
+	}
+
+	cout << "Similar CPU supermer: Total supermers: " <<  counter <<  " " << match<<endl;// if(i < 5)// toString_custm(kmers_compressed[i]);  
+
+	return ; 
+}
+
+
 std::unordered_map<uint64_t,uint64_t> kcounter_cpu; 
 int getKmers_test(char * seq) {
      
@@ -405,6 +510,7 @@ size_t GPU_supermer(vector<string> & seqs, vector< vector<Kmer> > & outgoing, in
     	all_seq_size += seqs[i].length();
 
     }
+    cout << seqs[offset].substr(0, 50) << endl;
     char *seqs_arr = (char*)malloc (all_seq_size * sizeof(char*));
 	int rd_offset=0;
 	for(size_t i=offset; i < nreads; ++i)
@@ -416,20 +522,26 @@ size_t GPU_supermer(vector<string> & seqs, vector< vector<Kmer> > & outgoing, in
 			nskipped++;
 			continue;
 		}
-		nkmers_smer_batch += seqs[i].length() - KMER_LENGTH + 1;
-		nkmers_smer_all += nkmers_smer_batch;
 		// int approx_maxsending = (4 * nkmers_smer_batch + nprocs - 1)/nprocs;
-
+ 		nkmers_smer_batch += seqs[i].length() - KMER_LENGTH + 1;
 		strcpy(seqs_arr + rd_offset, seqs[i].c_str()); 
 		rd_offset += seqs[i].length();
 		strcpy(seqs_arr + rd_offset, "a");
 		rd_offset++;	
+		// cout  << seqs[i].length() - KMER_LENGTH + 1 << " ";
 		
 		// if (approx_maxsending * bytesperentry >= memoryThreshold || (nkmers_smer_batch + seqs[i].length()) * bytesperentry >= MAX_ALLTOALL_MEM) { 
 		// 	nreads = i+1; // start with next read
 		// 	break;
 		// }
 	}
+
+	unsigned int seq_len = strlen(seqs_arr);
+    // unsigned int n_kmers =  seq_len - KMER_LENGTH + 1;
+    // nkmers_smer_batch = n_kmers;
+	nkmers_smer_all += nkmers_smer_batch;
+
+	// cout << "\nnkmers read " << endl;
 	owner_counter = (int*) malloc (nprocs * sizeof(int)) ;
 	memset(owner_counter, 0, nprocs * sizeof(int));
 	
@@ -442,10 +554,11 @@ size_t GPU_supermer(vector<string> & seqs, vector< vector<Kmer> > & outgoing, in
 	unsigned char *h_send_slens = (unsigned char *) malloc ( nkmers_smer_batch * 2 * sizeof(unsigned char));
 	
 	//***** Build Supermers on GPU *****
+	// getSupermers_CPU(seqs_arr, KMER_LENGTH, MINIMIZER_LENGTH, nprocs, owner_counter, h_send_smers, h_send_slens, nkmers_smer_batch,  myrank);
+		
 	getSupermers_GPU(seqs_arr, KMER_LENGTH, MINIMIZER_LENGTH, nprocs, owner_counter, h_send_smers, h_send_slens, nkmers_smer_batch,  myrank);
-	
 	//***** Exchange supermers on CPU *****
-/*	Exchange_GPUsupermers(h_send_smers, h_send_slens, sendcnt, recvcnt, nkmers_smer_batch);
+	Exchange_GPUsupermers(h_send_smers, h_send_slens, sendcnt, recvcnt, nkmers_smer_batch);
 
 	//***** Parse supermers and build kcounter on GPU *****
 	size_t num_keys = 0;
@@ -484,8 +597,8 @@ size_t GPU_supermer(vector<string> & seqs, vector< vector<Kmer> > & outgoing, in
     }
 
 	getKmers_test(seqs_arr); 
-	*/free(seqs_arr);
-
+	free(seqs_arr);
+	exit(0);
 
 	MPI_Pcontrol(-1,"ParseNPack");
 	return nreads;
@@ -1503,7 +1616,7 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
                 
                 double exch_start_t_GPU = MPI_Wtime();
                 // GPU_ParseNPack(seqs, outgoing, exchangeAndCountPass, tmp_offset);    // no-op if seqs.size() == 0
-                // GPU_supermer(seqs, outgoing, exchangeAndCountPass, tmp_offset, offset);    // no-op if seqs.size() == 0
+                GPU_supermer(seqs, outgoing, exchangeAndCountPass, tmp_offset, offset);    // no-op if seqs.size() == 0
                
                 double pack_t_GPU = MPI_Wtime() - exch_start_t_GPU;
                 tot_pack_GPU += pack_t_GPU;
