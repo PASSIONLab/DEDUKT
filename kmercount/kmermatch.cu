@@ -388,7 +388,7 @@ size_t ParseNPack(vector<string> & seqs, vector<string> names, vector<string> & 
 		}
 		if (pass == 2) { StoreReadName(readIndex, names[i], readNameMap); }
 		readIndex++; // always start with next read index whether exiting or continuing the loop
-		if (maxsending * bytesperentry >= memoryThreshold || (kmersthisbatch + seqs[i].length()) * bytesperentry >= MAX_ALLTOALL_MEM) { 
+		if (maxsending * bytesperentry >= (memoryThreshold) || (kmersthisbatch + seqs[i].length()) * bytesperentry >= (MAX_ALLTOALL_MEM)) { 
 			nreads = i+1; // start with next read
 			if (pass==2) { startReadIndex = readIndex; }
 			break;
@@ -408,9 +408,9 @@ size_t ParseNPack(vector<string> & seqs, vector<string> names, vector<string> & 
     assert(startReadIndex > 0);
 #endif
 */
-    for (int i=0; i < nprocs; i++) {
-    	outgoing[i].clear(); // CPU parseNPack is populating this..remove when that call is removed
-    }
+    // for (int i=0; i < nprocs; i++) {
+    // 	outgoing[i].clear(); // CPU parseNPack is populating this..remove when that call is removed
+    // }
 
 	LOGF("ParseNPack got through %lld reads (of %lld) and skipped %lld reads, total %lld kmers\n", (lld) nreads, (lld) seqs.size(), (lld) nskipped, (lld) kmersthisbatch);
 	MPI_Pcontrol(-1,"ParseNPack");
@@ -488,11 +488,13 @@ size_t GPU_ParseNPack(vector<string> & seqs, vector< vector<Kmer> > & outgoing, 
 
 uint64_t nkmers_smer_batch = 0;
 uint64_t nkmers_smer_all = 0;
+double tot_GPUsmer_build = 0, tot_GPUsmer_exch = 0, tot_GPU_smer_kcounter = 0;
+
 size_t GPU_supermer(vector<string> & seqs, vector< vector<Kmer> > & outgoing, int pass, size_t offset, int endoffset)
 {
-	
+	double start_gpu_smer = MPI_Wtime();
 	MPI_Pcontrol(1,"ParseNPack");
-	if(myrank == 0) cout << "FIX IT" << endl;
+	// if(myrank == 0) cout << "FIX IT" << endl;
 	size_t nreads = endoffset;// seqs.size(), max_slen = 0;
 	size_t nskipped = 0;
 	size_t maxsending = 0, kmersthisbatch = 0;
@@ -556,17 +558,25 @@ size_t GPU_supermer(vector<string> & seqs, vector< vector<Kmer> > & outgoing, in
 	//***** Build Supermers on GPU *****
 	// getSupermers_CPU(seqs_arr, KMER_LENGTH, MINIMIZER_LENGTH, nprocs, owner_counter, h_send_smers, h_send_slens, nkmers_smer_batch,  myrank);	
 	getSupermers_GPU(seqs_arr, KMER_LENGTH, MINIMIZER_LENGTH, nprocs, owner_counter, h_send_smers, h_send_slens, nkmers_smer_batch,  myrank);
+	tot_GPUsmer_build += MPI_Wtime() -  start_gpu_smer ;
 	
 	//***** Exchange supermers on CPU *****
+	start_gpu_smer = MPI_Wtime();
 	Exchange_GPUsupermers(h_send_smers, h_send_slens, sendcnt, recvcnt, nkmers_smer_batch);
-
+	tot_GPUsmer_exch += MPI_Wtime() -  start_gpu_smer ;
+	
 	//***** Parse supermers and build kcounter on GPU *****
+	
+	start_gpu_smer = MPI_Wtime();
 	size_t num_keys = 0;
 	for(uint64_t i= 0; i < nprocs ; ++i) 
 		num_keys += recvcnt[i];	
 	// cout << myrank << ": GPU recvd smers: " << num_keys << endl;
 
 	kcounter_supermer_GPU(pHashTable, d_recv_smers, d_recv_slens, num_keys, KMER_LENGTH, myrank);
+
+	tot_GPU_smer_kcounter += MPI_Wtime() -  start_gpu_smer ;
+  	
   	std::vector<KeyValue> h_pHashTable(kHashTableCapacity);
 	cudaMemcpy(h_pHashTable.data(), pHashTable, sizeof(KeyValue) * kHashTableCapacity, cudaMemcpyDeviceToHost); 
     // cudaFree(d_recv_slens);
@@ -590,15 +600,19 @@ size_t GPU_supermer(vector<string> & seqs, vector< vector<Kmer> > & outgoing, in
     CHECK_MPI( MPI_Reduce(&nkmers_smer_batch, &allrank_kmersthisbatch, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
     CHECK_MPI( MPI_Reduce(&nkmers_smer_all, &allrank_kmersprocessed, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
     // cout << myrank << " local GPU HT size " << HTsize << " pair " << totalPairs << " #ideal " << nkmers_smer_batch << endl;
+   
+	std::cout << "rank: " << myrank << ", Smer - GPU HTsize: " << HTsize 
+    	<< " #kmers from HT: " << totalPairs << ", ideal #kmers: " << allrank_kmersprocessed << std::endl;
+   MPI_Barrier(MPI_COMM_WORLD);
    if(myrank == 0){
     	cout << "\nBatch: " << batch <<" - GPU HTsize: " 
 		<< allrank_hashsize << ", #kmers from supermers based GPU_HT: " << allrank_totalPairs 
 		<< " ideal #kmers " << allrank_kmersprocessed << endl;
     }
 
-	getKmers_test(seqs_arr); 
+	// getKmers_test(seqs_arr); 
 	free(seqs_arr);
-
+	// cout << tot_GPUsmer_build << " " <<  tot_GPUsmer_exch << " " << tot_GPU_smer_kcounter << endl;
 	MPI_Pcontrol(-1,"ParseNPack");
 	return nreads;
 }
@@ -714,8 +728,8 @@ double Exchange(vector< vector<Kmer> > & outgoing, vector< vector< ReadId > > & 
 	double global_max_time = 0.0;
 	CHECK_MPI( MPI_Reduce(&exch_time, &global_max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD) );
 
-	// serial_printf("KmerMatch:%s exchange iteration %d pass %d: sent min %lld bytes, sent max %lld bytes, recv min %lld bytes, recv max %lld bytes, in min %.3f s, max %.3f s\n",
-	// 	__FUNCTION__, exchange_iter, pass, global_mins[SND], global_maxs[SND], global_mins[RCV], global_maxs[RCV], global_min_time, global_max_time);
+	serial_printf("KMER based KmerMatch:%s exchange iteration %d pass %d: sent min %lld bytes, sent max %lld bytes, recv min %lld bytes, recv max %lld bytes, in min %.3f s, max %.3f s\n",
+		__FUNCTION__, exchange_iter, pass, global_mins[SND], global_maxs[SND], global_mins[RCV], global_maxs[RCV], global_min_time, global_max_time);
 	performance_report_time = MPI_Wtime()-performance_report_time;
 	/*************************************/
 	
@@ -750,6 +764,10 @@ double Exchange(vector< vector<Kmer> > & outgoing, vector< vector< ReadId > > & 
     exchange_iter++;
     tot_exch_time=MPI_Wtime()-tot_exch_time-performance_report_time;
 	MPI_Pcontrol(-1,"Exchange");
+ 	if(myrank == 0) cout << "FIXIT" << endl;
+	    for (int i=0; i < nprocs; i++) {
+    	outgoing[i].clear(); // CPU parseNPack is populating this..remove when that call is removed
+    }
 	return tot_exch_time;
 }
 
@@ -883,7 +901,7 @@ void Exchange_GPUsupermers(keyType* outgoing, unsigned char* len_smers, int *sen
 	if (totrecv < 0) { cerr << myrank << " detected overflow in totrecv calculation, line" << __LINE__ << endl; }
 	DBG("totsend=%lld totrecv=%lld\n", (lld) totsend, (lld) totrecv);
        
-    cout << myrank << " send+recv: " << totsend << " " << totrecv << endl;
+    // cout << myrank << " send+recv: " << totsend << " " << totrecv << endl;
     int p_buff_len = ((nkmers * 2) + nprocs - 1)/nprocs;
 
     for (int i=0; i < nprocs; i++) {
@@ -895,13 +913,31 @@ void Exchange_GPUsupermers(keyType* outgoing, unsigned char* len_smers, int *sen
  	uint64_t* recvbuf = (uint64_t*) malloc(nkmers * 2 * sizeof(uint64_t)); 
  	unsigned char* recvbuf_len = (unsigned char*) malloc(nkmers * 2 * sizeof(unsigned char)); 
 
-	double exch_time = MPI_Wtime();
+	double exch_time1 = MPI_Wtime();
 
 	CHECK_MPI( MPI_Alltoallv(outgoing, sendcnt, sdispls, MPI_UINT64_T, recvbuf, recvcnt, rdispls, MPI_UINT64_T, MPI_COMM_WORLD) );
 	CHECK_MPI( MPI_Alltoallv(len_smers, sendcnt, sdispls, MPI_UNSIGNED_CHAR, recvbuf_len, recvcnt, rdispls, MPI_UNSIGNED_CHAR, MPI_COMM_WORLD) );
 	
-	exch_time = MPI_Wtime() - exch_time;
-	// tot_exch_time_smer += exch_time;
+	double exch_time = MPI_Wtime() - exch_time1;
+	
+	const int SND=0, RCV=1;
+	int64_t local_counts[2];
+	local_counts[SND] = totsend;
+	local_counts[RCV] = totrecv;
+
+	int64_t global_mins[2]={0,0};
+	CHECK_MPI( MPI_Reduce(&local_counts, &global_mins, 2, MPI_LONG_LONG, MPI_MIN, 0, MPI_COMM_WORLD) );
+	int64_t global_maxs[2]={0,0};
+	CHECK_MPI( MPI_Reduce(&local_counts, &global_maxs, 2, MPI_LONG_LONG, MPI_MAX, 0, MPI_COMM_WORLD) );
+
+	double global_min_time = 0.0;
+	CHECK_MPI( MPI_Reduce(&exch_time, &global_min_time, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD) );
+	double global_max_time = 0.0;
+	CHECK_MPI( MPI_Reduce(&exch_time, &global_max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD) );
+
+	// serial_printf("KmerMatch:%s sent min %lld bytes, sent max %lld bytes, recv min %lld bytes, recv max %lld bytes, in min %.3f s, max %.3f s\n",
+	// 	__FUNCTION__, global_mins[SND], global_maxs[SND], global_mins[RCV], global_maxs[RCV], global_min_time, global_max_time);
+
 
 // checkCuda (cudaMalloc(&d_supermers, n_kmers * buff_scale * sizeof(keyType)), __LINE__); 
 	checkCuda( cudaMalloc(&d_recv_smers, sizeof(keyType) * totrecv), __LINE__); 
@@ -1612,8 +1648,8 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
                 double pack_t = MPI_Wtime() - exch_start_t;
                 tot_pack += pack_t;
 
-                // build_supermer(seqs, tmp_offset, offset);
-                
+                build_supermer(seqs, tmp_offset, offset);
+                MPI_Barrier(MPI_COMM_WORLD);
                 double exch_start_t_GPU = MPI_Wtime();
                 // GPU_ParseNPack(seqs, outgoing, exchangeAndCountPass, tmp_offset);    // no-op if seqs.size() == 0
                 GPU_supermer(seqs, outgoing, exchangeAndCountPass, tmp_offset, offset);    // no-op if seqs.size() == 0
@@ -1676,21 +1712,21 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
                 CHECK_MPI( MPI_Allreduce(moreflags, allmore2go, 3, MPI_INT, MPI_SUM, MPI_COMM_WORLD) );
                 DBG("Got global state: allmoreSeqs=%d allmoreToExchange=%d allmoreFiles=%d\n", allmoreSeqs, allmoreToExchange, allmoreFiles);
                 double now = MPI_Wtime();
-                if (myrank == 0 && !(exchanges % 30)) {
-                		cout << __FUNCTION__ << " pass " << pass << ": "
-                			 << " active ranks moreSeqs: " << allmoreSeqs
-                         << " moreToExchange: " << allmoreToExchange
-                         << " moreFiles: " << allmoreFiles  
-                         << ", rank " << myrank 
-                         << " moreSeqs: " << moreSeqs 
-                         << " moreToExchange: " << moreToExchange
-                         << " moreFiles: " << moreFiles;
-                    cout << " pack_time: " << std::fixed << std::setprecision( 3 ) << pack_t
-                         << " exchange_time: " << std::fixed << std::setprecision( 3 ) << exch_t
-                         << " process_time: " << std::fixed << std::setprecision( 3 ) << process_t
-                         << " elapsed: " <<  std::fixed << std::setprecision( 3 ) << now - t01
-						 << endl;
-                }
+                // if (myrank == 0 && !(exchanges % 30)) {
+       //          		cout << __FUNCTION__ << " pass " << pass << ": "
+       //          			 << ".: " << allmoreSeqs
+       //                   << " moreToExchange: " << allmoreToExchange
+       //                   << " moreFiles: " << allmoreFiles  
+       //                   << ", rank " << myrank 
+       //                   << " moreSeqs: " << moreSeqs 
+       //                   << " moreToExchange: " << moreToExchange
+       //                   << " moreFiles: " << moreFiles;
+       //              cout << " pack_time: " << std::fixed << std::setprecision( 3 ) << pack_t
+       //                   << " exchange_time: " << std::fixed << std::setprecision( 3 ) << exch_t
+       //                   << " process_time: " << std::fixed << std::setprecision( 3 ) << process_t
+       //                   << " elapsed: " <<  std::fixed << std::setprecision( 3 ) << now - t01
+						 // << endl;
+       //          }
                 LOGF("Exchange timings pack: %0.3f exch: %0.3f process: %0.3f elapsed: %0.3f\n", pack_t, exch_t, process_t, now - t01);
             } while (moreToExchange);
             anymore2go = allmoreSeqs + allmoreToExchange + allmoreFiles;
@@ -1717,7 +1753,7 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
     t02 = MPI_Wtime();
     tot_raw = tot_raw - pfqTime;
     double tots[6], gtots[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    double tots_GPU[3], gtots_GPU[3] = {0.0, 0.0, 0.0};//, 0.0, 0.0, 0.0};
+    double tots_GPU[6], gtots_GPU[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
     tots[0] = pfqTime;
     tots[1] = tot_pack; 
     tots[2] = tot_exch;
@@ -1727,27 +1763,34 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
     tots_GPU[0] = tot_pack_GPU;
     tots_GPU[1] = tot_exch_GPU;
     tots_GPU[2] = tot_process_GPU;
-    LOGF("Process Total times: fastq: %0.3f pack: %0.3f exch: %0.3f process: %0.3f elapsed: %0.3f\n", pfqTime, tot_pack, tot_exch, tot_process, tots[4]);
+    tots_GPU[3] = tot_GPUsmer_build;
+    tots_GPU[4] = tot_GPUsmer_exch;
+    tots_GPU[5] = tot_GPU_smer_kcounter;
+    // LOGF("Process Total times: fastq: %0.3f pack: %0.3f exch: %0.3f process: %0.3f elapsed: %0.3f\n", pfqTime, tot_pack, tot_exch, tot_process, tots[4]);
  	
- 	CHECK_MPI( MPI_Reduce(&tots_GPU, &gtots_GPU, 3, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD) );
+ 	CHECK_MPI( MPI_Reduce(&tots_GPU, &gtots_GPU, 6, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD) );
     CHECK_MPI( MPI_Reduce(&tots, &gtots, 6, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD) );
-    if (myrank == 0) {
-        int num_ranks;
-        CHECK_MPI( MPI_Comm_size(MPI_COMM_WORLD, &num_ranks) );
-        cout << __FUNCTION__ << " pass " << pass << ": Average time taken for FASTQ reads is " << (gtots[0] / num_ranks) << ", myelapsed " << tots[0] << endl;
-        cout << __FUNCTION__ << " pass " << pass << ": Average time taken for packing reads is " << (gtots[1] / num_ranks) << ", myelapsed " << tots[1] << endl;
-        cout << __FUNCTION__ << " pass " << pass << ": Average time taken for exchanging reads is " << (gtots[2] / num_ranks) << ", myelapsed " << tots[2] << endl;
-        cout << __FUNCTION__ << " pass " << pass << ": Average time taken for processing reads is " << (gtots[3] / num_ranks) << ", myelapsed " << tots[3] << endl;
-        cout << __FUNCTION__ << " pass " << pass << ": Average time taken for other FASTQ processing is " << (gtots[4] / num_ranks) << ", myelapsed " << tots[4] << endl;
-        cout << __FUNCTION__ << " pass " << pass << ": Average time taken for elapsed is " << (gtots[5] / num_ranks) << ", myelapsed " << tots[5] << endl;
-    	cout << "Timings on GPU:\n";
-    	cout << __FUNCTION__ << " pass " << pass << ": Average time taken for packing reads on GPU (incl. memcpy) is " << (gtots_GPU[0] / num_ranks) << ", myelapsed " << tots[1] << endl;   
-        cout << __FUNCTION__ << " pass " << pass << ": Average time taken for xchanging reads on GPU is " << (gtots_GPU[1] / num_ranks) << ", myelapsed " << tots[1] << endl;   
-        cout << __FUNCTION__ << " pass " << pass << ": Average time taken for processing reads (Kmer count) on GPU is " << (gtots_GPU[2] / num_ranks) << ", myelapsed " << tots[1] << endl;   
+  //   if (myrank == 0) {
+  //       int num_ranks;
+  //       CHECK_MPI( MPI_Comm_size(MPI_COMM_WORLD, &num_ranks) );
+  //       // cout << __FUNCTION__ << " pass " << pass << ": Average time taken for FASTQ reads is " << (gtots[0] / num_ranks) << ", myelapsed " << tots[0] << endl;
+  //       // cout << __FUNCTION__ << " pass " << pass << ": Average time taken for packing reads is " << (gtots[1] / num_ranks) << ", myelapsed " << tots[1] << endl;
+  //       // cout << __FUNCTION__ << " pass " << pass << ": Average time taken for exchanging reads is " << (gtots[2] / num_ranks) << ", myelapsed " << tots[2] << endl;
+  //       // cout << __FUNCTION__ << " pass " << pass << ": Average time taken for processing reads is " << (gtots[3] / num_ranks) << ", myelapsed " << tots[3] << endl;
+  //       // cout << __FUNCTION__ << " pass " << pass << ": Average time taken for other FASTQ processing is " << (gtots[4] / num_ranks) << ", myelapsed " << tots[4] << endl;
+  //       // cout << __FUNCTION__ << " pass " << pass << ": Average time taken for elapsed is " << (gtots[5] / num_ranks) << ", myelapsed " << tots[5] << endl;
+  // //   	cout << "\nTimings on GPU KMER:\n";
+  // //   	cout << __FUNCTION__ << " pass " << pass << ": Average time taken for packing reads on GPU (incl. memcpy) is " << (gtots_GPU[0] / num_ranks) << ", myelapsed " << tots[1] << endl;   
+  // //       cout << __FUNCTION__ << " pass " << pass << ": Average time taken for xchanging reads on GPU is " << (gtots_GPU[1] / num_ranks) << ", myelapsed " << tots[1] << endl;   
+  // //       cout << __FUNCTION__ << " pass " << pass << ": Average time taken for processing reads (Kmer count) on GPU is " << (gtots_GPU[2] / num_ranks) << ", myelapsed " << tots[1] << endl;   
+  //       cout << "\nTimings on GPU supermer:\n";
+  //   	cout << __FUNCTION__ << " pass " << pass << ": Average time taken for build supermer on GPU (incl. memcpy) is " << (gtots_GPU[3] / num_ranks) << ", myelapsed " << tots[1] << endl;   
+  //       cout << __FUNCTION__ << " pass " << pass << ": Average time taken for xchanging smer on GPU is " << (gtots_GPU[4] / num_ranks) << ", myelapsed " << tots[1] << endl;   
+  //       cout << __FUNCTION__ << " pass " << pass << ": Average time taken for Kmer count on GPU is " << (gtots_GPU[5] / num_ranks) << ", myelapsed " << tots[1] << endl;   
        
 
-    	printf("IN: Finished Pass %d, Freeing bloom and other memory. kmercounts: %lld entries\n", pass, (lld) kmercounts->size());
-    }
+  //   	printf("IN: Finished Pass %d, Freeing bloom and other memory. kmercounts: %lld entries\n", pass, (lld) kmercounts->size());
+  //   }
 	
     if(myrank == 0) {
         cout << __FUNCTION__ << " pass " << pass << ": Read/distributed/processed reads of " << (files_itr == allfiles.end() ? " ALL files " : files_itr->filename) << " in " << t02-t01 << " seconds" << endl;

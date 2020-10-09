@@ -18,7 +18,8 @@ typedef unsigned long long int keyType;
 //     uint32_t value;
 // };
 
-
+int murmur3_64( int k );
+int murmur3_32( int k );
 
 uint64_t find_minimizer(uint64_t kmer, int &order);
 size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset); 

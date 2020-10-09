@@ -11,17 +11,17 @@
 // int mlen = MINIMIZER_LENGTH;
 
 __device__ keyType find_minimizer(keyType kmer, int klen, int mlen, keyType max64){
-	
-	keyType minimizer = max64;
+    
+    keyType minimizer = max64;
     keyType mask = pow(2, 2*mlen) - 1;
 
-	for (int m = 0; m < (klen - mlen ); ++m){
-		keyType mmer =  (kmer >> (2*(31-(mlen+m -1)))) & mask;
-		
-		if( mmer < minimizer ) 
-			minimizer = mmer;
-	}
-	return minimizer;
+    for (int m = 0; m < (klen - mlen ); ++m){
+        keyType mmer =  (kmer >> (2*(31-(mlen+m -1)))) & mask;
+        
+        if( mmer < minimizer ) 
+            minimizer = mmer;
+    }
+    return minimizer;
 }
 
 // size_t total_kmers = 0, total_supermers = 0, tot_char = 0;
@@ -241,25 +241,25 @@ void getSupermers_GPU(char* seq, int klen, int mlen, int nproc, int *owner_count
 //         keyType comprs_Smer = 0;
 //         keyType comprs_Kmer = 0;
 
-//         keyType cur_mini = max64;  keyType prev_mini = cur_mini;	
+//         keyType cur_mini = max64;  keyType prev_mini = cur_mini; 
         
 //         int order = 0, prev_order = 0;
         
-//         for (int w = 0; w < window && (i+ w + klen) < nKmer; ++w){ //make it linear time	
-//        		inserted = false; validKmer = true;
-        	
-//         	for (int k = 0; k < klen ; ++k) {
-// 	            char s =  seq[i + w + k ];
-// 	            if(s == 'a' || s == 'N')  { //improvement scope..discard a chunk based on loc of N
-// 	                validKmer = false; break;
-// 	            }
-// 	            int j = k % 32;
-// 	            size_t x = ((s) & 4) >> 1;
-// 	            comprs_Kmer |= ((x + ((x ^ (s & 2)) >>1)) << (2*(31-j))); //make it longs[] to support larger kmer 	
-// 	            order = i + w;
-// 	            // cur_kmer[k] = seq[i + w + k ];
-// 	        }
-// 			if(validKmer)
+//         for (int w = 0; w < window && (i+ w + klen) < nKmer; ++w){ //make it linear time 
+//              inserted = false; validKmer = true;
+            
+//          for (int k = 0; k < klen ; ++k) {
+//              char s =  seq[i + w + k ];
+//              if(s == 'a' || s == 'N')  { //improvement scope..discard a chunk based on loc of N
+//                  validKmer = false; break;
+//              }
+//              int j = k % 32;
+//              size_t x = ((s) & 4) >> 1;
+//              comprs_Kmer |= ((x + ((x ^ (s & 2)) >>1)) << (2*(31-j))); //make it longs[] to support larger kmer  
+//              order = i + w;
+//              // cur_kmer[k] = seq[i + w + k ];
+//          }
+//          if(validKmer)
 //             {
 //                 if(w == 0) //
 //                 { //not initilized yet with any mini
@@ -270,55 +270,55 @@ void getSupermers_GPU(char* seq, int klen, int mlen, int nproc, int *owner_count
 //                 }
 //                 else 
 //                 {
-		  	     	
+                    
 //                     cur_mini = find_minimizer(comprs_Kmer, order, klen, mlen, max64);;//find_minimizer(cur_kmer, order, klen, mlen);
-		        	
-// 		        	if(prev_mini == cur_mini ){	
-//                         // printf("mini match  %lu %lu \n", cur_mini, comprs_Smer ); 	     
-// 			        	char s =  seq[i + w + klen - 1];
-// 			            int j = slen % 32; 
-// 			            size_t x = ((s) & 4) >> 1;
-// 			            comprs_Smer |= ((x + ((x ^ (s & 2)) >>1)) << (2*(31-j)));
-// 			            slen++;
-// 		        	}
-// 			     	else 
-//                     {		                  
-// 		            	keyType owner = cuda_murmur3_64(comprs_Smer) & (nproc - 1); // remove & with HTcapacity in func
-// 		            	int old_count = atomicAdd(&owner_counter[owner],1); 
-// 			            // if(gId == 0) printf("%lu %d\n", owner, old_count );
+                    
+//                  if(prev_mini == cur_mini ){ 
+//                         // printf("mini match  %lu %lu \n", cur_mini, comprs_Smer );          
+//                      char s =  seq[i + w + klen - 1];
+//                      int j = slen % 32; 
+//                      size_t x = ((s) & 4) >> 1;
+//                      comprs_Smer |= ((x + ((x ^ (s & 2)) >>1)) << (2*(31-j)));
+//                      slen++;
+//                  }
+//                  else 
+//                     {                          
+//                      keyType owner = cuda_murmur3_64(comprs_Smer) & (nproc - 1); // remove & with HTcapacity in func
+//                      int old_count = atomicAdd(&owner_counter[owner],1); 
+//                      // if(gId == 0) printf("%lu %d\n", owner, old_count );
 //                         if(old_count >= p_buff_len )  { 
 //                             // printf("%d %d \n", old_count, p_buff_len );
 //                             printf("Overflow!! MISSION ABORT!!\n");
-//                         }           	
+//                         }            
 //                         outgoing[owner * p_buff_len + old_count] = comprs_Smer; //hash (longs) 
-// 		            	out_slen[owner * p_buff_len + old_count] = slen;  
-// 		            	comprs_Smer = comprs_Kmer;
+//                      out_slen[owner * p_buff_len + old_count] = slen;  
+//                      comprs_Smer = comprs_Kmer;
 //                         slen = klen;
-// 		            	// if(w == (window - 1) || (i == nKmer - 1)) inserted = true;
-// 			        }
-// 			    }
-// 			    prev_mini = cur_mini;
-// 		    	prev_order = order;
-// 			}
-// 			// else cur_mini == max64;
-// 	    }
-// 	    if(validKmer)
+//                      // if(w == (window - 1) || (i == nKmer - 1)) inserted = true;
+//                  }
+//              }
+//              prev_mini = cur_mini;
+//              prev_order = order;
+//          }
+//          // else cur_mini == max64;
+//      }
+//      if(validKmer)
 //         {
-// 	    	keyType owner = cuda_murmur3_64(comprs_Smer) & (nproc - 1); // remove & with HTcapacity in func
-//         	int old_count = atomicAdd(&owner_counter[owner],1); 
+//          keyType owner = cuda_murmur3_64(comprs_Smer) & (nproc - 1); // remove & with HTcapacity in func
+//          int old_count = atomicAdd(&owner_counter[owner],1); 
 //             if(old_count >= p_buff_len)   printf("Overflow!! MISSION ABORT!!\n");     
-//         	outgoing[owner * p_buff_len + old_count] = comprs_Smer; //hash (longs)
-//         	out_slen[owner * p_buff_len + old_count] = slen;   
-// 	    }
+//          outgoing[owner * p_buff_len + old_count] = comprs_Smer; //hash (longs)
+//          out_slen[owner * p_buff_len + old_count] = slen;   
+//      }
 //     }
 // }
 // int buff_scale = 2;
 
 // void getSupermers_GPU(char* seq, int klen, int mlen, int nproc, int *owner_counter, 
-// 	keyType* h_send_smers, unsigned char* h_send_slens, int n_kmers, int rank )
+//  keyType* h_send_smers, unsigned char* h_send_slens, int n_kmers, int rank )
 // {
 //     klen= 17;
-// 	int count, devId;
+//  int count, devId;
 //     char *d_kmers, *d_seq;
 //     keyType *d_supermers, *d_outOverflowBuff;
 //     unsigned char *d_slen;
@@ -353,8 +353,8 @@ void getSupermers_GPU(char* seq, int klen, int mlen, int nproc, int *owner_count
 //     cudaMemset(d_supermers,  0, n_kmers * buff_scale * sizeof(keyType));
 //     cudaMemset(d_owner_counter,  0, sizeof(int) * nproc);
 
-// 	int window = 1;//32 - klen;// - mlen + 1 ;
-// 	unsigned int p_buff_len = ((n_kmers * buff_scale) + nproc - 1)/nproc;
+//  int window = 1;//32 - klen;// - mlen + 1 ;
+//  unsigned int p_buff_len = ((n_kmers * buff_scale) + nproc - 1)/nproc;
 //     int b = 128;
 //     int g = (seq_len + (b -1) ) / (b);// * window;
 //     // g = (g+window-1)/window;
@@ -431,7 +431,7 @@ void kcounter_supermer_GPU(KeyValue* pHashTable, keyType* d_smers, unsigned char
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
-	// const uint32_t N = 1;
+    // const uint32_t N = 1;
     /*------------------------
      Copy kmers to GPU      
     ------------------------*/
@@ -470,4 +470,4 @@ void kcounter_supermer_GPU(KeyValue* pHashTable, keyType* d_smers, unsigned char
 }
 
 
-	
+    
