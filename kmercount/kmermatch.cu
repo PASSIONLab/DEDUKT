@@ -423,12 +423,13 @@ double GPUtime=0;
 uint64_t *sendbuf_GPU = NULL;
 int * owner_counter; 
 int MINIMIZER_LENGTH = 5;
+size_t nkmersAllseq_thisBatch = 0;
 
-size_t GPU_ParseNPack(vector<string> & seqs, vector< vector<Kmer> > & outgoing, int pass, size_t offset)
+size_t GPU_ParseNPack(vector<string> & seqs, vector< vector<Kmer> > & outgoing, int pass, size_t offset, size_t endoffset)
 {
 
 	MPI_Pcontrol(1,"ParseNPack");
-	size_t nreads = seqs.size();
+	size_t nreads = endoffset;// seqs.size();
 	size_t nskipped = 0;
 	size_t maxsending = 0, kmersthisbatch = 0;
 	size_t bytesperkmer = Kmer::numBytes();
@@ -439,11 +440,11 @@ size_t GPU_ParseNPack(vector<string> & seqs, vector< vector<Kmer> > & outgoing, 
 	int * sendcnt = new int[nprocs];
 	memset(sendcnt, 0, sizeof(int) * nprocs);
     nkmers_thisBatch = 0;
+    nkmersAllseq_thisBatch = 0;
     uint64_t all_seq_size = 0;
     for(size_t i=offset; i< nreads; ++i){
     	if (seqs[i].length() <= KMER_LENGTH) continue;
     	all_seq_size += seqs[i].length();
-
     }
     char *seqs_arr = (char*)malloc (all_seq_size * sizeof(char*));
 	int rd_offset=0;
@@ -452,7 +453,6 @@ size_t GPU_ParseNPack(vector<string> & seqs, vector< vector<Kmer> > & outgoing, 
 		size_t found  = seqs[i].length();
 		// skip this sequence if the length is too short
 		if (seqs[i].length() <= KMER_LENGTH) {
-			//cerr << "seq is too short (" << seqs[i].length() << " < " << KMER_LENGTH << " : " << seqs[i] << endl;
 			nskipped++;
 			continue;
 		}
@@ -464,10 +464,10 @@ size_t GPU_ParseNPack(vector<string> & seqs, vector< vector<Kmer> > & outgoing, 
 		strcpy(seqs_arr + rd_offset, "a");
 		rd_offset++;	
 		
-		if (approx_maxsending * bytesperentry >= memoryThreshold || (nkmers_thisBatch + seqs[i].length()) * bytesperentry >= MAX_ALLTOALL_MEM) { 
-			nreads = i+1; // start with next read
-			break;
-		}
+		// if (approx_maxsending * bytesperentry >= memoryThreshold || (nkmers_thisBatch + seqs[i].length()) * bytesperentry >= MAX_ALLTOALL_MEM) { 
+		// 	nreads = i+1; // start with next read
+		// 	break;
+		// }
 	}
 	owner_counter = (int*) malloc (nprocs * sizeof(int)) ;
 	memset(owner_counter, 0, nprocs * sizeof(int));
@@ -477,6 +477,8 @@ size_t GPU_ParseNPack(vector<string> & seqs, vector< vector<Kmer> > & outgoing, 
 		return nreads;
 	} 
 	sendbuf_GPU = getKmers_GPU(seqs_arr, KMER_LENGTH, nprocs, owner_counter, myrank);
+  	unsigned int seq_len = strlen(seqs_arr);
+	nkmersAllseq_thisBatch = seq_len - KMER_LENGTH + 1;
 	getKmers_test(seqs_arr);
 	free(seqs_arr);
 
@@ -803,7 +805,7 @@ double GPU_Exchange(vector< vector<Kmer> > & outgoing, vector<keyType> & mykmers
 	if (totrecv < 0) { cerr << myrank << " detected overflow in totrecv calculation, line" << __LINE__ << endl; }
 	DBG("totsend=%lld totrecv=%lld\n", (lld) totsend, (lld) totrecv);
     
-    int n_kmers = nkmers_thisBatch; 
+    int n_kmers = nkmersAllseq_thisBatch;
     int p_buff_len = ((n_kmers * 2) + nprocs - 1)/nprocs;
     // nkmers_thisBatch = 0;
 
@@ -840,8 +842,8 @@ double GPU_Exchange(vector< vector<Kmer> > & outgoing, vector<keyType> & mykmers
 	double global_max_time = 0.0;
 	CHECK_MPI( MPI_Reduce(&exch_time, &global_max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD) );
 
-	serial_printf("KmerMatch:%s sent min %lld bytes, sent max %lld bytes, recv min %lld bytes, recv max %lld bytes, in min %.3f s, max %.3f s\n",
-		__FUNCTION__, global_mins[SND], global_maxs[SND], global_mins[RCV], global_maxs[RCV], global_min_time, global_max_time);
+	// serial_printf("KmerMatch:%s sent min %lld bytes, sent max %lld bytes, recv min %lld bytes, recv max %lld bytes, in min %.3f s, max %.3f s\n",
+	// 	__FUNCTION__, global_mins[SND], global_maxs[SND], global_mins[RCV], global_maxs[RCV], global_min_time, global_max_time);
 	
 /***************\*/
     nkmers_gpu = 0;
@@ -1046,7 +1048,7 @@ void insert_hashtable_cpu(keyType* mykmers_GPU, int nkeys){
     // CHECK_MPI( MPI_Reduce(&nkmers_sofar, &allrank_kmersprocessed, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
    if(myrank == 0)
    	{
-      cout << "\nBatch: " << batch << " local HT " <<  HTsize << " local pairs " << totalPairs <<  "- CPU HTsize: " 
+      cout << "\nBatch: " << batch 
     << allrank_hashsize << ", #kmers from CPU_HT: " << allrank_totalPairs << endl;
 	}
 }
@@ -1056,7 +1058,7 @@ double GPU_DealWithInMemoryData(vector<keyType> & mykmers_GPU, int pass, struct 
     double t_count = MPI_Wtime();
     // Insert items into the hash table
     // insert_hashtable(pHashTable, mykmers_GPU.data(), (uint32_t)mykmers_GPU.size(), myrank);
-	// insert_hashtable_cpu(mykmers_GPU.data(), (uint32_t)mykmers_GPU.size());
+	insert_hashtable_cpu(mykmers_GPU.data(), (uint32_t)mykmers_GPU.size());
 	size_t num_keys = nkmers_gpu;
 	insert_hashtable(pHashTable, device_keys, num_keys, myrank);
 
@@ -1648,11 +1650,11 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
                 double pack_t = MPI_Wtime() - exch_start_t;
                 tot_pack += pack_t;
 
-                build_supermer(seqs, tmp_offset, offset);
+                // build_supermer(seqs, tmp_offset, offset);
                 MPI_Barrier(MPI_COMM_WORLD);
                 double exch_start_t_GPU = MPI_Wtime();
-                // GPU_ParseNPack(seqs, outgoing, exchangeAndCountPass, tmp_offset);    // no-op if seqs.size() == 0
-                GPU_supermer(seqs, outgoing, exchangeAndCountPass, tmp_offset, offset);    // no-op if seqs.size() == 0
+                GPU_ParseNPack(seqs, outgoing, exchangeAndCountPass, tmp_offset, offset);    // no-op if seqs.size() == 0
+                // GPU_supermer(seqs, outgoing, exchangeAndCountPass, tmp_offset, offset);    // no-op if seqs.size() == 0
                
                 double pack_t_GPU = MPI_Wtime() - exch_start_t_GPU;
                 tot_pack_GPU += pack_t_GPU;
@@ -1667,7 +1669,7 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
                 double exch_t = 0;//Exchange(outgoing, readids, positions, extquals, extseqs, mykmers, myreadids, mypositions, /*myquals, myseqs,*/ exchangeAndCountPass, scratch1, scratch2); // outgoing arrays will be all empty, shouldn't crush
 				tot_exch += exch_t;
 				
-				double exch_t_GPU = 0;//GPU_Exchange(outgoing, kmers_GPU, exchangeAndCountPass); // outgoing arrays will be all empty, shouldn't crush
+				double exch_t_GPU = GPU_Exchange(outgoing, kmers_GPU, exchangeAndCountPass); // outgoing arrays will be all empty, shouldn't crush
 				tot_exch_GPU += exch_t_GPU;
 #ifdef DEBUG
                // if(myrank==0) cout << "Finished Exchange pass " << exchangeAndCountPass << endl;
@@ -1684,7 +1686,7 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
                 }
                 // DealWithInMemoryData(mykmers, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
 // #ifdef GPU
-                double process_t_GPU = 0;//GPU_DealWithInMemoryData(kmers_GPU, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
+                double process_t_GPU = GPU_DealWithInMemoryData(kmers_GPU, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
 				tot_process_GPU += process_t_GPU;
 
 				// #endif
