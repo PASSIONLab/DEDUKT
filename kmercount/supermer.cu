@@ -51,7 +51,7 @@ __global__ void cuda_build_supermer(char *seq, char *kmers, int klen, int mlen, 
     
     if(i <  nKmer) {
     
-        // if ((i+klen-1) >= nKmer) 
+        comprs_Kmer = 0;
         for (int k = 0; k < klen ; ++k) {
             char s =  seq[i + k ];
             if(s == 'a' || s == 'N')  { 
@@ -63,24 +63,27 @@ __global__ void cuda_build_supermer(char *seq, char *kmers, int klen, int mlen, 
             comprs_Kmer |= ((x + ((x ^ (s & 2)) >>1)) << (2*(31-j))); //make it longs[] to support larger kmer  
         }
         if(validKmer){
-            owner = cuda_murmur3_64(comprs_Kmer) & (nproc - 1); // remove & with HTcapacity in func
+            cur_mini = find_minimizer(comprs_Kmer, klen, mlen, max64);
+            prev_mini = cur_mini; 
+            owner = cuda_murmur3_64(cur_mini) & (nproc - 1); // remove & with HTcapacity in func
             old_count = atomicAdd(&owner_counter[owner],1); 
             outgoing[owner * p_buff_len + old_count] = comprs_Kmer; //hash (longs)
-            out_slen[owner * p_buff_len + old_count] = klen;   
+            out_slen[owner * p_buff_len + old_count] = klen;  
+
         }
         comprs_Smer = comprs_Kmer;
         slen = klen;
     
-        int w = 1;
-        int st_char_th = st_char_block + laneId * window + 1;
-        int end_char_th = st_char_block + (laneId+1) * window;
+        int c = st_char_block + (laneId * window);
+        // int end_char_th = st_char_block + (laneId+1) * window;
         
-        for(int i = st_char_th; i < end_char_th && i < nKmer ; i++) {
+        for(int w = 1; w < window && (c+w) < nKmer ; w++) {
+
             validKmer = true;
             comprs_Kmer = 0;
             // if ((i + klen-1) > nKmer) return;
             for (int k = 0; k < klen ; ++k) {
-                char s =  seq[i + k ];
+                char s =  seq[c + w + k ];
                 if(s == 'a' || s == 'N')  { 
                     // w += klen-1;
                     validKmer = false; break;
@@ -94,9 +97,9 @@ __global__ void cuda_build_supermer(char *seq, char *kmers, int klen, int mlen, 
             {  
                 cur_mini = find_minimizer(comprs_Kmer, klen, mlen, max64);
                 
-                if(prev_mini == cur_mini && w < window){ 
+                if(prev_mini == cur_mini){ 
                     // printf("mini match  %lu %lu \n", cur_mini, comprs_Smer );         
-                    char s =  seq[i + klen - 1];
+                    char s =  seq[c + w + klen - 1];
                     int j = slen % 32; 
                     size_t x = ((s) & 4) >> 1;
                     comprs_Smer |= ((x + ((x ^ (s & 2)) >>1)) << (2*(31-j)));
@@ -112,7 +115,7 @@ __global__ void cuda_build_supermer(char *seq, char *kmers, int klen, int mlen, 
                     //***new supermer
                     slen = klen;
                     comprs_Smer = comprs_Kmer;
-                    owner = cuda_murmur3_64(comprs_Smer) & (nproc - 1); // remove & with HTcapacity in func
+                    owner = cuda_murmur3_64(cur_mini) & (nproc - 1); // remove & with HTcapacity in func
                     old_count = atomicAdd(&owner_counter[owner],1); 
                     // if(gId == 0) printf("%lu %d\n", owner, old_count );
                     if(old_count >= p_buff_len )  { 
@@ -123,7 +126,6 @@ __global__ void cuda_build_supermer(char *seq, char *kmers, int klen, int mlen, 
                     out_slen[owner * p_buff_len + old_count] = slen;  
                 }
                 prev_mini = cur_mini;
-                w++;
             }
         }   
         if(old_count > -1 && owner > -1) {

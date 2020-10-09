@@ -501,15 +501,7 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset)
 	}
  
     uint64_t totkmer = 0, nHTsize= 0;
-    // max_hit = max_hit/20;
-    // int histbin[max_hit];
-    // memset(&histbin, 0, max_hit * sizeof(int));
-    // size_t tot_hist = 0;
-	// for ( auto it = histogram_mini.begin(); it!= histogram_mini.end(); ++it ){
-	// 	tot_hist+=it->second;
-	// 	cout << it->second << " ";
-	// }
-	// cout  << "\ntotl ele in hist " << tot_hist << endl;
+
 	int totssmer = 0;
 	for (int i = 0; i < nprocs; ++i)
 		totssmer += sendcnt[i];
@@ -525,19 +517,22 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset)
 
 	unsigned char *recv_slen = (unsigned char*) malloc(n_kmers * 2 * sizeof(unsigned char)); 
 	uint64_t *recv_smers = (uint64_t*) malloc(n_kmers * 2 * sizeof(uint64_t)); 
-	
+	MPI_Barrier(MPI_COMM_WORLD);
+	cout << "done building\n";
 	Exchange_supermers(outgoing_csmers, outgoing_lensmers, recv_smers, recv_slen, sendcnt, recvcnt, n_kmers);
 // 
 	// cout << "After exchange: " << endl;
 	int totrsmer = 0;
 	for (int i = 0; i < nprocs; ++i)
 		totrsmer += recvcnt[i];
-
+	MPI_Barrier(MPI_COMM_WORLD);
+	cout << "done ecchgae \n";
 	// cout << "\nTotal send-recv count " << totssmer << " " << totrsmer << endl;
 	parse_supermer_N_build_kmercounter(recv_smers, recv_slen, recvcnt, p_buff_len);
 	// parse_supermer_N_build_kmercounter(c_supermers, len_smers, recvcnt, p_buff_len);
 
-
+	MPI_Barrier(MPI_COMM_WORLD);
+	cout << "done parsing\n";
 	/*********Correctness check*******/
 	for (int j = 0; j < supermers.size(); ++j)
 	{

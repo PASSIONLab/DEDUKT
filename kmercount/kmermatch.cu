@@ -408,9 +408,9 @@ size_t ParseNPack(vector<string> & seqs, vector<string> names, vector<string> & 
     assert(startReadIndex > 0);
 #endif
 */
-    // for (int i=0; i < nprocs; i++) {
-    // 	outgoing[i].clear(); // CPU parseNPack is populating this..remove when that call is removed
-    // }
+    for (int i=0; i < nprocs; i++) {
+    	outgoing[i].clear(); // CPU parseNPack is populating this..remove when that call is removed
+    }
 
 	LOGF("ParseNPack got through %lld reads (of %lld) and skipped %lld reads, total %lld kmers\n", (lld) nreads, (lld) seqs.size(), (lld) nskipped, (lld) kmersthisbatch);
 	MPI_Pcontrol(-1,"ParseNPack");
