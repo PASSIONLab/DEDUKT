@@ -305,19 +305,103 @@ void getSupermers_CPU(char* seq, int klen, int mlen, int nproc, int *owner_count
 	return ; 
 }
 
+keyType tmp_MurmurHash3_x64_128(const void* key, const uint32_t len, const uint32_t seed)
+{
+  const uint8_t * data = (const uint8_t*)key;
+  const uint32_t nblocks = len / 16;
+  int32_t i;
+
+  uint64_t h1 = seed;
+  uint64_t h2 = seed;
+
+  uint64_t c1 = BIG_CONSTANT(0x87c37b91114253d5);
+  uint64_t c2 = BIG_CONSTANT(0x4cf5ad432745937f);
+
+  const uint8_t * tail = (const uint8_t*)(data + nblocks*16);
+
+  uint64_t k1 = 0;
+  uint64_t k2 = 0;
+
+  switch(len & 15)
+  {
+  case 15: k2 ^= (uint64_t)(tail[14]) << 48;
+  case 14: k2 ^= (uint64_t)(tail[13]) << 40;
+  case 13: k2 ^= (uint64_t)(tail[12]) << 32;
+  case 12: k2 ^= (uint64_t)(tail[11]) << 24;
+  case 11: k2 ^= (uint64_t)(tail[10]) << 16;
+  case 10: k2 ^= (uint64_t)(tail[ 9]) << 8;
+  case  9: k2 ^= (uint64_t)(tail[ 8]) << 0;
+  k2 *= c2; k2  =  (k2 << 33) | (k2 >> (64 - 33)) ;//ROTL64(k2,33); 
+  k2 *= c1; h2 ^= k2;
+
+  case  8: k1 ^= (uint64_t)(tail[ 7]) << 56;
+  case  7: k1 ^= (uint64_t)(tail[ 6]) << 48;
+  case  6: k1 ^= (uint64_t)(tail[ 5]) << 40;
+  case  5: k1 ^= (uint64_t)(tail[ 4]) << 32;
+  case  4: k1 ^= (uint64_t)(tail[ 3]) << 24;
+  case  3: k1 ^= (uint64_t)(tail[ 2]) << 16;
+  case  2: k1 ^= (uint64_t)(tail[ 1]) << 8;
+  case  1: k1 ^= (uint64_t)(tail[ 0]) << 0;
+    k1 *= c1; k1  = (k1 << 31) | (k1 >> (64 - 31)) ;//ROTL64(k1,31); 
+    k1 *= c2; h1 ^= k1;
+  };
+
+  //----------
+  // finalization
+
+  h1 ^= len; h2 ^= len;
+
+  h1 += h2;
+  h2 += h1;
+
+  // h1 = fmix64(h1);
+
+  // /* regular murmur64 */
+  keyType k  = h1;
+  k ^= k >> 33;
+  k *= BIG_CONSTANT(0xff51afd7ed558ccd);
+  k ^= k >> 33;
+  k *= BIG_CONSTANT(0xc4ceb9fe1a85ec53);
+  k ^= k >> 33;
+
+  h1 = k;
+
+  // h2 = fmix64(h2);
+
+  k  = h2;
+  k ^= k >> 33;
+  k *= BIG_CONSTANT(0xff51afd7ed558ccd);
+  k ^= k >> 33;
+  k *= BIG_CONSTANT(0xc4ceb9fe1a85ec53);
+  k ^= k >> 33;
+
+  h2 = k;
+
+  h1 += h2;
+  h2 += h1;
+
+  // ((uint64_t*)out)[0] = h1;
+  // ((uint64_t*)out)[1] = h2;
+
+  return h1;
+}
 
 std::unordered_map<uint64_t,uint64_t> kcounter_cpu; 
+
 int getKmers_test(char * seq) {
      
+    int * tmp_counter = new int[nprocs];
     unsigned int seq_len = strlen(seq);
     unsigned int n_kmers =  seq_len - KMER_LENGTH + 1;
-
+	
+	for (int i = 0; i < nprocs; ++i)	tmp_counter[i] = 0;
+	
     std::vector<uint64_t> kmers_compressed;
     int na = 0;
 
     for(int i = 0; i < seq_len - KMER_LENGTH + 1; ++i) {
 	    int kk = i;
-	    int64_t longs = 0;
+	    uint64_t longs = 0;
 	    bool validKmer = true;
 		for (int k = 0; k < KMER_LENGTH; ++k,++kk)      {
 	        char s = seq[kk];
@@ -331,9 +415,20 @@ int getKmers_test(char * seq) {
 	        size_t x = ((s) & 4) >> 1;
 	        longs |= ((x + ((x ^ (s & 2)) >>1)) << (2*(31-j))); //make it longs[] to support larger kmer
 	    }
-	    if(validKmer)
-	      kmers_compressed.push_back(longs);    
+	    if(validKmer){
+	    	// keyType	owner = murmur3_64(longs);
+	    	uint64_t myhash_1 = tmp_MurmurHash3_x64_128((const void *)&longs, 8 , 313); 
+	    	double range = static_cast<double>(myhash_1) * static_cast<double>(nprocs);
+    		size_t owner = range / static_cast<double>(numeric_limits<uint64_t>::max());
+			tmp_counter[owner]++;
+	        kmers_compressed.push_back(longs);    
+	    }
 	}
+	for (int i = 0; i < nprocs; ++i)
+	{
+		cout << tmp_counter[i] << " ";
+	}
+
   	// cout << "Similar CPU Parse & pack: Total kmers: " <<  kmers_compressed.size() << " - " << na << endl;// if(i < 5)// toString_custm(kmers_compressed[i]);  
     return kmers_compressed.size(); 
 }
@@ -479,7 +574,7 @@ size_t GPU_ParseNPack(vector<string> & seqs, vector< vector<Kmer> > & outgoing, 
 	sendbuf_GPU = getKmers_GPU(seqs_arr, KMER_LENGTH, nprocs, owner_counter, myrank);
   	unsigned int seq_len = strlen(seqs_arr);
 	nkmersAllseq_thisBatch = seq_len - KMER_LENGTH + 1;
-	getKmers_test(seqs_arr);
+	// getKmers_test(seqs_arr);
 	free(seqs_arr);
 
 	nkmers_processed += nkmers_thisBatch;
@@ -1058,7 +1153,7 @@ double GPU_DealWithInMemoryData(vector<keyType> & mykmers_GPU, int pass, struct 
     double t_count = MPI_Wtime();
     // Insert items into the hash table
     // insert_hashtable(pHashTable, mykmers_GPU.data(), (uint32_t)mykmers_GPU.size(), myrank);
-	insert_hashtable_cpu(mykmers_GPU.data(), (uint32_t)mykmers_GPU.size());
+	// insert_hashtable_cpu(mykmers_GPU.data(), (uint32_t)mykmers_GPU.size());
 	size_t num_keys = nkmers_gpu;
 	insert_hashtable(pHashTable, device_keys, num_keys, myrank);
 
@@ -1596,6 +1691,8 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
         moreToExchange = 0; // no data yet
         size_t fill_status;
         int exchanges = 0;
+        int type = 2;
+
         do { // extract raw data into seqs and quals
             DBG("Starting new round: moreSeqs=%d, moreFiles=%d\n", moreSeqs, moreFiles);
             MPI_Pcontrol(1,"FastqIO");
@@ -1649,45 +1746,41 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
                 DBG("%s %d : after ParseNPack, readIndex=%lld\n", __FUNCTION__, __LINE__, readIndex);
                 double pack_t = MPI_Wtime() - exch_start_t;
                 tot_pack += pack_t;
+				
+				double exch_t = 0;
 
-                // build_supermer(seqs, tmp_offset, offset);
-                MPI_Barrier(MPI_COMM_WORLD);
-                double exch_start_t_GPU = MPI_Wtime();
-                GPU_ParseNPack(seqs, outgoing, exchangeAndCountPass, tmp_offset, offset);    // no-op if seqs.size() == 0
-                // GPU_supermer(seqs, outgoing, exchangeAndCountPass, tmp_offset, offset);    // no-op if seqs.size() == 0
+                if(type == 0){ // Original diBella on CPU
+                	exch_t = Exchange(outgoing, readids, positions, extquals, extseqs, mykmers, myreadids, mypositions, /*myquals, myseqs,*/ exchangeAndCountPass, scratch1, scratch2); // outgoing arrays will be all empty, shouldn't crush
+					tot_exch += exch_t;
+
+					DealWithInMemoryData(mykmers, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
+				}
+
+          		else if(type == 1){
+          			double exch_start_t_GPU = MPI_Wtime();
+                	GPU_ParseNPack(seqs, outgoing, exchangeAndCountPass, tmp_offset, offset);    // no-op if seqs.size() == 0
+                    double pack_t_GPU = MPI_Wtime() - exch_start_t_GPU;
+                	tot_pack_GPU += pack_t_GPU;
+
+                	double exch_t_GPU = GPU_Exchange(outgoing, kmers_GPU, exchangeAndCountPass); // outgoing arrays will be all empty, shouldn't crush
+					tot_exch_GPU += exch_t_GPU;
+
+					double process_t_GPU = GPU_DealWithInMemoryData(kmers_GPU, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
+					tot_process_GPU += process_t_GPU;
+          		}
+
+                else if(type == 2)
+                	build_supermer(seqs, tmp_offset, offset);
+                
+                else if(type == 3)
+                	GPU_supermer(seqs, outgoing, exchangeAndCountPass, tmp_offset, offset);    // no-op if seqs.size() == 0
                
-                double pack_t_GPU = MPI_Wtime() - exch_start_t_GPU;
-                tot_pack_GPU += pack_t_GPU;
-
                 DBG("Packed up to  %lld.  Starting Exchange outgoing %lld %0.3f sec\n", (lld) offset, (lld) outgoing.size(), pack_t);
                 if (offset == seqs.size()) {
                     seqs.clear();	// no need to do the swap trick as we will reuse these buffers in the next iteration
                     quals.clear();
                     offset = 0;
                 }
-
-                double exch_t = 0;//Exchange(outgoing, readids, positions, extquals, extseqs, mykmers, myreadids, mypositions, /*myquals, myseqs,*/ exchangeAndCountPass, scratch1, scratch2); // outgoing arrays will be all empty, shouldn't crush
-				tot_exch += exch_t;
-				
-				double exch_t_GPU = GPU_Exchange(outgoing, kmers_GPU, exchangeAndCountPass); // outgoing arrays will be all empty, shouldn't crush
-				tot_exch_GPU += exch_t_GPU;
-#ifdef DEBUG
-               // if(myrank==0) cout << "Finished Exchange pass " << exchangeAndCountPass << endl;
-#endif
-                               
-                DBG("Exchanged. Received %lld %0.3f sec\n", (lld) mykmers.size(), exch_t);
-
-                if (exchangeAndCountPass == 2) {
-                		ASSERT(mykmers.size() == myreadids.size(),"");
-                		ASSERT(mykmers.size() == mypositions.size(),"");
-                } else {
-                		ASSERT( myreadids.size() == 0,"" );
-                		ASSERT( mypositions.size() == 0,"" );
-                }
-                // DealWithInMemoryData(mykmers, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
-// #ifdef GPU
-                double process_t_GPU = GPU_DealWithInMemoryData(kmers_GPU, exchangeAndCountPass, bm, myreadids, mypositions);   // we might still receive data even if we didn't send any
-				tot_process_GPU += process_t_GPU;
 
 				// #endif
                 moreToExchange = offset < seqs.size(); // TODO make sure this isn't problematic in long read version
@@ -2107,6 +2200,8 @@ int kmermatch_main(int argc, char ** argv)
 
     bool opt_err = false;
     char *input_fofn = NULL;
+
+    int type = 0;
     /*
      * fastq input and kmer output caching flag
      */
@@ -2166,6 +2261,10 @@ int kmermatch_main(int argc, char ** argv)
 			break;
 		case 'S':
 			save_ufx = true;
+			break;
+		case 't':
+			type = atoi(this_opt->argument);
+			cout << "type defining here " << type << endl;
 			break;
 		case 'x':
 			reliable_min = strtol(this_opt->argument, NULL, 10);
@@ -2315,6 +2414,7 @@ int kmermatch_main(int argc, char ** argv)
     // pass 1
     ReadId myReadStartIndex = 0;
     assert(base_dir != NULL);
+    cout << "Whats my type? " << type << endl;
     int nReads = ProcessFiles(allfiles, 1, cardinality, cached_io, base_dir, myReadStartIndex, *readNameMap);	// determine final hash-table entries using bloom filter
     DBG("my nreads=%lld\n", nReads);
 

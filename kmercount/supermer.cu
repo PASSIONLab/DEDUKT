@@ -65,7 +65,12 @@ __global__ void cuda_build_supermer(char *seq, char *kmers, int klen, int mlen, 
         if(validKmer){
             cur_mini = find_minimizer(comprs_Kmer, klen, mlen, max64);
             prev_mini = cur_mini; 
-            owner = cuda_murmur3_64(cur_mini) & (nproc - 1); // remove & with HTcapacity in func
+            // owner = cuda_murmur3_64(cur_mini) & (nproc - 1); // remove & with HTcapacity in func
+            keyType myhash = cuda_murmur3_64(cur_mini); // remove & with HTcapacity in func
+            // keyType myhash = cuda_MurmurHash3_x64_128((const void *)&longs, 8, 313);// & (nproc - 1);
+            double range = static_cast<double>(myhash) * static_cast<double>(nproc);
+            owner = range / max64;
+
             old_count = atomicAdd(&owner_counter[owner],1); 
             outgoing[owner * p_buff_len + old_count] = comprs_Kmer; //hash (longs)
             out_slen[owner * p_buff_len + old_count] = klen;  
@@ -115,7 +120,12 @@ __global__ void cuda_build_supermer(char *seq, char *kmers, int klen, int mlen, 
                     //***new supermer
                     slen = klen;
                     comprs_Smer = comprs_Kmer;
-                    owner = cuda_murmur3_64(cur_mini) & (nproc - 1); // remove & with HTcapacity in func
+                    // owner = cuda_murmur3_64(cur_mini) & (nproc - 1); // remove & with HTcapacity in func
+                    keyType myhash = cuda_murmur3_64(cur_mini); // remove & with HTcapacity in func
+                    // keyType myhash = cuda_MurmurHash3_x64_128((const void *)&longs, 8, 313);// & (nproc - 1);
+                    double range = static_cast<double>(myhash) * static_cast<double>(nproc);
+                    owner = range / max64;
+
                     old_count = atomicAdd(&owner_counter[owner],1); 
                     // if(gId == 0) printf("%lu %d\n", owner, old_count );
                     if(old_count >= p_buff_len )  { 

@@ -35,7 +35,7 @@ int murmur3_32( int k )
   	return k;
 }
 
-int murmur3_64( int k )
+uint64_t murmur3_64( uint64_t k )
 {
   k ^= k >> 33;
   k *= BIG_CONSTANT(0xff51afd7ed558ccd);
@@ -46,16 +46,6 @@ int murmur3_64( int k )
   return k;
 }
 
-int murmur3_32_tmp( int k )
-{
-  	k ^= k >> 16;
-	k *= 0x85ebca6b;
-	k ^= k >> 13;
-	k *= 0xc2b2ae35;
-	k ^= k >> 16;
-
-  	return k;
-}
 
 
 string decompress_smer(uint64_t c_kmer, int slen){
@@ -403,26 +393,11 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset)
 		int cur_nkmer = seqs[i].length()-KMER_LENGTH+1;
 		
 		// Build supermers from the current read	
-		
 		unsigned int owner;
 		int order = 0, prev_order;
-		// string cur_kmer = seqs[i].substr(0, KMER_LENGTH);
-		// string minimizer = find_minimizer(cur_kmer, order);
-		// string prev_minimizer = minimizer;
-		// prev_order = order;
-		// int cur_slen =  KMER_LENGTH;
-		// uint64_t compressed_supermer = compress_kmer(cur_kmer); 
+
 		int window = 32 - KMER_LENGTH;
-		// char c_m[32];
-		// strcpy(c_m, minimizer.c_str());
-		// owner = murmur3_32(*(uint32_t *)c_m);
-
-		// supermers.push_back(cur_kmer);
-		// c_supermers.push_back(compressed_supermer);
-		// len_smers.push_back((unsigned char)cur_slen); 		// unsigned char cc = cur_slen;
-		// outgoing_csmers[owner * p_buff_len + sendcnt[owner]] = compressed_supermer;
-		// outgoing_lensmers[owner * p_buff_len + sendcnt[owner]++] = (unsigned char)cur_slen;
-
+		
 		for (int c = 0; c < cur_nkmer; c+=window)
 		{
 			string cur_kmer = seqs[i].substr(c, KMER_LENGTH);
@@ -434,8 +409,12 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset)
 
 			uint64_t c_minimizer = find_minimizer(compressed_supermer, order); 
 		    uint64_t c_prev_minimizer = c_minimizer;
-			owner = murmur3_64(c_minimizer) & (nprocs - 1);
-			
+
+
+			uint64_t hsh = murmur3_64(c_minimizer);
+			double range = static_cast<double>(hsh) * static_cast<double>(nprocs);
+    		owner = range / static_cast<double>(numeric_limits<uint64_t>::max());
+
 			int cur_slen = KMER_LENGTH;
 			supermers.push_back(cur_kmer);
 			// c_supermers.push_back(compressed_supermer);
@@ -476,7 +455,10 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset)
 					// char c_m[32];
 					// strcpy(c_m, minimizer.c_str());
 					// owner = (murmur3_64(*(uint64_t *)c_m)) & (nprocs - 1);
-					owner = murmur3_64(c_minimizer) & (nprocs - 1);
+					// owner = murmur3_64(c_minimizer) & (nprocs - 1);
+					hsh = murmur3_64(c_minimizer);// & (nprocs - 1);
+					range = static_cast<double>(hsh) * static_cast<double>(nprocs);
+    				owner = range / static_cast<double>(numeric_limits<uint64_t>::max());
 					outgoing_csmers[owner * p_buff_len + sendcnt[owner]] = compressed_supermer;
 					outgoing_lensmers[owner * p_buff_len + sendcnt[owner]] = (unsigned char)cur_slen;
 					sendcnt[owner]++;	 
@@ -513,12 +495,11 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset)
 
 	// Supermer stats
 	total_supermers += supermers.size();
-	cout << "CPU #supermers: " << supermers.size() << endl;
 
 	unsigned char *recv_slen = (unsigned char*) malloc(n_kmers * 2 * sizeof(unsigned char)); 
 	uint64_t *recv_smers = (uint64_t*) malloc(n_kmers * 2 * sizeof(uint64_t)); 
 	MPI_Barrier(MPI_COMM_WORLD);
-	cout << "done building\n";
+
 	Exchange_supermers(outgoing_csmers, outgoing_lensmers, recv_smers, recv_slen, sendcnt, recvcnt, n_kmers);
 // 
 	// cout << "After exchange: " << endl;
@@ -526,13 +507,13 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset)
 	for (int i = 0; i < nprocs; ++i)
 		totrsmer += recvcnt[i];
 	MPI_Barrier(MPI_COMM_WORLD);
-	cout << "done ecchgae \n";
+
 	// cout << "\nTotal send-recv count " << totssmer << " " << totrsmer << endl;
 	parse_supermer_N_build_kmercounter(recv_smers, recv_slen, recvcnt, p_buff_len);
 	// parse_supermer_N_build_kmercounter(c_supermers, len_smers, recvcnt, p_buff_len);
 
 	MPI_Barrier(MPI_COMM_WORLD);
-	cout << "done parsing\n";
+
 	/*********Correctness check*******/
 	for (int j = 0; j < supermers.size(); ++j)
 	{
@@ -611,7 +592,7 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset)
 		
 // 		char c_m[32];
 // 		strcpy(c_m, minimizer.c_str());
-// 		owner = murmur3_32(*(uint32_t *)c_m);
+// 		owner = murmur3_32(*(uint64_t *)c_m);
 // 		// owner = murmur3_32(compress_mini);
 
 // 		supermers.push_back(cur_kmer);
@@ -660,12 +641,12 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset)
 // 				char c_m[32];
 // 				strcpy(c_m, minimizer.c_str());
 // 				// owner = murmur3_32(compress_mini);
-// 				owner = murmur3_32(*(uint32_t *)c_m);
+// 				owner = murmur3_32(*(uint64_t *)c_m);
 // 				outgoing_csmers[owner * p_buff_len + sendcnt[owner]] = compressed_supermer;
 // 				outgoing_lensmers[owner * p_buff_len + sendcnt[owner]] = (unsigned char)cur_slen;
 // 				sendcnt[owner]++;
 
-// 				int hist = murmur3_32_tmp(*(uint32_t *)c_m);
+// 				int hist = murmur3_32_tmp(*(uint64_t *)c_m);
 // 				auto found = histogram_mini.find(hist);// == kcounter_cpu_concat; .end() )
 			
 // 				if(found != histogram_mini.end()){
@@ -913,7 +894,7 @@ size_t build_concat_supermer(vector<string> seqs, size_t offset)
 		int cur_slen =  KMER_LENGTH;
 		
 		char c_m[32]; strcpy(c_m, minimizer.c_str());
-		unsigned int owner = (murmur3_64(*(uint32_t *)c_m)) & (nprocs - 1);
+		unsigned int owner = (murmur3_64(*(uint64_t *)c_m)) & (nprocs - 1);
 		outgoing_lensmers[owner * p_buff_len + nsmers[owner]++] = (unsigned char)cur_slen;
 		long_smer[owner] += cur_kmer;
 		// nsmers[owner]++;
@@ -933,7 +914,7 @@ size_t build_concat_supermer(vector<string> seqs, size_t offset)
 
 				cur_slen = KMER_LENGTH;
 				char c_m[32]; strcpy(c_m, minimizer.c_str());
-				owner = (murmur3_64(*(uint32_t *)c_m)) & (nprocs - 1);
+				owner = (murmur3_64(*(uint64_t *)c_m)) & (nprocs - 1);
 				long_smer[owner] += cur_kmer;
 				outgoing_lensmers[owner * p_buff_len + nsmers[owner]++] = (unsigned char)cur_slen;
 

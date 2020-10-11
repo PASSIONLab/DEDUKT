@@ -304,7 +304,7 @@ __global__ void gpu_parseKmerNFillupBuff(char *seq, char *kmers, int klen, unsig
     unsigned int tId = threadIdx.x;
     unsigned int laneId = tId & (blockDim.x - 1);
     unsigned int gId = (blockIdx.x * blockDim.x + tId);
-    int per_block_seq_len = (seq_len + (gridDim.x - 1)) / gridDim.x;
+    int per_block_seq_len = blockDim.x;//(seq_len + (gridDim.x - 1)) / gridDim.x;
     int st_char_block = blockIdx.x * per_block_seq_len; //first char this block should read
     int nKmer = seq_len - klen + 1; //last char is 'a'
 
@@ -325,15 +325,14 @@ __global__ void gpu_parseKmerNFillupBuff(char *seq, char *kmers, int klen, unsig
             // assert(s != '\0');
             size_t x = ((s) & 4) >> 1;
             longs |= ((x + ((x ^ (s & 2)) >>1)) << (2*(31-j))); //make it longs[] to support larger kmer
-            // }
-            // else {
-            //     endOfRead = true; 
-            //     break;
-            // }
         }
         if(validKmer ) {
 
-            keyType owner = cuda_murmur3_64(longs) & (nproc - 1); // remove & with HTcapacity in func
+            keyType myhash = cuda_murmur3_64(longs); // remove & with HTcapacity in func
+            // keyType myhash = cuda_MurmurHash3_x64_128((const void *)&longs, 8, 313);// & (nproc - 1);
+            double range = static_cast<double>(myhash) * static_cast<double>(nproc);
+            size_t owner = range / max64;
+
             int old_count = atomicAdd(&owner_counter[owner],1); 
  
             if(old_count >= p_buff_len * 2 ) {
@@ -395,10 +394,12 @@ uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int 
     checkCuda (cudaMemcpy(owner_counter, d_owner_counter, nproc * sizeof(int) , cudaMemcpyDeviceToHost), __LINE__); 
    
     uint64_t total_counter = 0;
+    printf("GPU ParseNPack: outgoing buufers: ");
     for (int i = 0; i < nproc; ++i) {   
         total_counter += owner_counter[i];    
-        // printf("GPU ParseNPack: local HT counter kmers: %d %d \n", owner_counter[i], total_counter);
+        printf(" %d", owner_counter[i]);
     }
+    cout << endl;
     cudaFree(d_seq);
     cudaFree(d_outgoing);
     cudaFree(d_owner_counter);

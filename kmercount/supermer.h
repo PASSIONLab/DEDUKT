@@ -18,7 +18,7 @@ typedef unsigned long long int keyType;
 //     uint32_t value;
 // };
 
-int murmur3_64( int k );
+uint64_t murmur3_64(uint64_t k );
 int murmur3_32( int k );
 
 uint64_t find_minimizer(uint64_t kmer, int &order);
