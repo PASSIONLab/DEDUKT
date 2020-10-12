@@ -106,7 +106,7 @@ inline size_t PackEndsKmer(string & seq, string & qual, int j, Kmer &kmerreal, R
     if (pass == 1)
     {
         if (!isCounted) return 0;
-        kmerreal = kmerreal.rep();
+        // kmerreal = kmerreal.rep();
         procSendCount = FinishPackPass1(outgoing, kmerreal);
     }
     else if (pass == 2)   // otherwise we don't care about the extensions

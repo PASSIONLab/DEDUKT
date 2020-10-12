@@ -394,12 +394,12 @@ uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int 
     checkCuda (cudaMemcpy(owner_counter, d_owner_counter, nproc * sizeof(int) , cudaMemcpyDeviceToHost), __LINE__); 
    
     uint64_t total_counter = 0;
-    printf("GPU ParseNPack: outgoing buufers: ");
+    // printf("GPU ParseNPack: outgoing buufers: ");
     for (int i = 0; i < nproc; ++i) {   
         total_counter += owner_counter[i];    
-        printf(" %d", owner_counter[i]);
+        // printf(" %d", owner_counter[i]);
     }
-    cout << endl;
+    // cout << endl;
     cudaFree(d_seq);
     cudaFree(d_outgoing);
     cudaFree(d_owner_counter);

@@ -129,7 +129,6 @@ __global__ void cuda_build_supermer(char *seq, char *kmers, int klen, int mlen, 
                     old_count = atomicAdd(&owner_counter[owner],1); 
                     // if(gId == 0) printf("%lu %d\n", owner, old_count );
                     if(old_count >= p_buff_len )  { 
-                        printf("%d %d \n", old_count, p_buff_len );
                         printf("Overflow!! MISSION ABORT!!\n");
                     }               
                     outgoing[owner * p_buff_len + old_count] = comprs_Smer; //hash (longs) 
@@ -218,7 +217,7 @@ void getSupermers_GPU(char* seq, int klen, int mlen, int nproc, int *owner_count
         total_counter += owner_counter[i];    
         // printf("GPU Supermer pack: output buffer: %d %d \n", owner_counter[i], total_counter);
     }
-    printf("GPU Supermer %d \n", total_counter);
+
 
     cudaFree(d_seq);
     cudaFree(d_supermers);
@@ -435,19 +434,12 @@ void kcounter_supermer_GPU(KeyValue* pHashTable, keyType* d_smers, unsigned char
     cudaGetDeviceCount(&count);
     int gpuID = rank % count;
     cudaSetDevice(gpuID);
-    cudaGetDevice(&devId);
-    // printf("\n FROnProcs %d: rank %d mapped to %d\n", nproc, rank, devId);
+    // cudaGetDevice(&devId);
 
-    // Copy the keyvalues to the GPU
-    // Create events for GPU timing
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
-    // const uint32_t N = 1;
-    /*------------------------
-     Copy kmers to GPU      
-    ------------------------*/
-    // keyType* device_keys;
+
     cudaEventRecord(start);
 
     int b = 128;
