@@ -19,10 +19,6 @@
 
 using namespace std;
 
-
-
-int MINI_LENGTH = 5;
-// #define BIG_CONSTANT(x) (x)
 // 32 bit Murmur3 hash
 int murmur3_32( int k )
 {
@@ -125,9 +121,9 @@ uint64_t compress_kmer(string cur_kmer){
 	return c_kmer;
 }
 
-uint64_t find_minimizer(uint64_t kmer, int &order){
+uint64_t find_minimizer(uint64_t kmer, int mlen){
 	
-	int klen = 17, mlen = 5;//MINI_LENGTH;
+	int klen = 17;
 	keyType minimizer = std::numeric_limits<uint64_t>::max(); 
     keyType mask = pow(2, 2*mlen) - 1;
 
@@ -140,19 +136,17 @@ uint64_t find_minimizer(uint64_t kmer, int &order){
     return minimizer;
 }
 
-string find_minimizer(string kmer, int &order){
+string find_minimizer(string kmer, int mlen){
 	
 	string minimizer = "ZZZZZZZ";
-	int local_order;
-	for (int m = 0; m < (KMER_LENGTH - MINI_LENGTH); ++m)
+
+	for (int m = 0; m < (KMER_LENGTH - mlen); ++m)
 	{
-		string mmer = kmer.substr(m, MINI_LENGTH);
+		string mmer = kmer.substr(m, mlen);
 		if( mmer < minimizer ) {
-			local_order = m;
 			minimizer = mmer;
 		}
 	}
-	order += local_order;
 	return minimizer;
 }
 
@@ -351,10 +345,11 @@ uint64_t* Exchange_supermers(uint64_t* outgoing, unsigned char* len_smers,
 
 
 std::unordered_map<int,uint64_t> histogram_mini; 
-size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset)
+size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset, int klen, int mlen)
 {
-	KMER_LENGTH= 17;
-	Kmer::set_k(17);
+	KMER_LENGTH = klen;
+	Kmer::set_k(klen);
+	// cout << "\n\n lengths " << KMER_LENGTH << " " << mlen;
 	if(myrank == 0) cout << "FIXIT " << endl;
 	size_t nreads = endoffset;// seqs.size(), 
 	size_t max_slen = 0;
@@ -407,7 +402,7 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset)
 			// char c_m[32]; strcpy(c_m, minimizer.c_str());
 			// owner = (murmur3_64(*(uint64_t *)c_m)) & (nprocs - 1);
 
-			uint64_t c_minimizer = find_minimizer(compressed_supermer, order); 
+			uint64_t c_minimizer = find_minimizer(compressed_supermer, mlen); 
 		    uint64_t c_prev_minimizer = c_minimizer;
 
 
@@ -425,7 +420,7 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset)
 			for (int w = 1; w < window && (c+w) < cur_nkmer; ++w){
 	 
 				cur_kmer = seqs[i].substr(c+w, KMER_LENGTH);
-				c_minimizer = find_minimizer(compress_kmer(cur_kmer), order);
+				c_minimizer = find_minimizer(compress_kmer(cur_kmer), mlen);
 				// minimizer = find_minimizer(cur_kmer, order);
 				
 				if(c_minimizer == c_prev_minimizer ){
@@ -488,10 +483,10 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset)
 	for (int i = 0; i < nprocs; ++i)
 		totssmer += sendcnt[i];
 
-	// cout << "CPU totsmer: " <<  totssmer << ", smer distribution: avg: " << totssmer/nprocs << "; ";
-	// for (int p = 0; p < nprocs; ++p)
-	// 	cout << p << ": " << sendcnt[p] << ", ";
-	// cout << endl;
+	cout << "CPU totsmer: " <<  totssmer << ", smer distribution: avg: " << totssmer/nprocs << "; ";
+	for (int p = 0; p < nprocs; ++p)
+		cout << p << ": " << sendcnt[p] << ", ";
+	cout << endl;
 
 	// Supermer stats
 	total_supermers += supermers.size();
@@ -850,7 +845,7 @@ void Exchange_concat_supermers(uint64_t* outgoing, unsigned char* len_smers,
 	return;// recvbuf;
 }
 
-size_t build_concat_supermer(vector<string> seqs, size_t offset)
+size_t build_concat_supermer(vector<string> seqs, size_t offset, int mlen)
 {
 	size_t nreads = seqs.size(), max_slen = 0;
 	
@@ -888,7 +883,7 @@ size_t build_concat_supermer(vector<string> seqs, size_t offset)
 		/* Build supermers from the current read*/	
 		int order = 0, prev_order;
 		string cur_kmer = seqs[i].substr(0, KMER_LENGTH);
-		string minimizer = find_minimizer(cur_kmer, order);
+		string minimizer = find_minimizer(cur_kmer, mlen);
 		string prev_minimizer = minimizer;
 		prev_order = order;
 		int cur_slen =  KMER_LENGTH;
@@ -903,7 +898,7 @@ size_t build_concat_supermer(vector<string> seqs, size_t offset)
 			
 			cur_kmer = seqs[i].substr(c, KMER_LENGTH);
 			order = c;
-			minimizer = find_minimizer(cur_kmer, order);
+			minimizer = find_minimizer(cur_kmer, mlen);
 			
 			if(minimizer == prev_minimizer && order == prev_order) {	
 				long_smer[owner] += seqs[i][c+KMER_LENGTH-1];

@@ -84,6 +84,9 @@ int main(int argc, char ** argv) {
 	bool cached_overlaps = false;
 	bool use_perthread = false;
 	bool purge_vm = 1;
+	int type = 2;
+	int window = 1;
+	int mini_len = 3;
 
 	//
 	// setup memory usage tracking
@@ -137,7 +140,7 @@ int main(int argc, char ** argv) {
 	//char *myoptions = get_option_list();
 	bool skip_algnmnt_krnl = false;
 	char *bella_settings = NULL;
-	option_t *opt_list = GetOptList(argc, argv, "i:e:h:DpBHESa:k:P:x:b:y:s:u:m:q:d:N:");
+	option_t *opt_list = GetOptList(argc, argv, "i:e:h:DpBHESa:k:P:x:b:y:s:u:m:q:d:N:t:w:n:");
 	char fail[10000];
 	char buf[100];
 	char *all_inputs_fofn = NULL;
@@ -182,6 +185,16 @@ int main(int argc, char ** argv) {
 				err_threshold = strtol(this_opt->argument, NULL, 10);
 				break;
 			}
+			case 't':
+				type = strtol(this_opt->argument, NULL, 10);
+				break;
+			case 'w':
+				window = strtol(this_opt->argument, NULL, 10);
+				break;
+			case 'n':
+				mini_len = strtol(this_opt->argument, NULL, 10);
+				break;
+
 			case 's': cfg.stages = strdup(this_opt->argument); break;
 			case 'P': cfg.pePath = strdup(this_opt->argument); break;
 			case 'H': cfg.runHLL = 1; break;
@@ -310,7 +323,7 @@ int main(int argc, char ** argv) {
 	}
 	*/
 	kmermatch_ran = exec_stage(cfg.stages, NOT_SCAFF, kmermatch_main, name_i("kmermatch", kmer_len),
-						 "-k %d", kmer_len, "-i %s", all_inputs_fofn, "-B %B", cfg.cached_io,
+						 "-k %d", kmer_len, "-t %d", type, "-w %d", window, "-n %d", mini_len, "-i %s", all_inputs_fofn, "-B %B", cfg.cached_io,
 						 "-e %d", err_threshold, "-u %d", reliable_max, "-a %B", cached_overlaps,
 						 "-P %B", use_perthread,
 						 "-m %s", overlaps_fname, "-d %d", seed_distance, "-q %d", max_seeds,

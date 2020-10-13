@@ -105,7 +105,7 @@ object			SOURCES				readufx.cpp
 			TYPE				OBJECT
 			TARGET_NAME			${NAME}
 			OUTPUT_NAME			${NAME}
-			SOURCES				kmermatch.cu supermer.cpp
+			SOURCES				kmermatch.cu supermer.cpp supermer.cu
 			HEADERS				supermer.h common_gpu.h
 			DEFINITIONS			${KMER_DEFS}
 			LINK_LIBRARIES		${ZLIB_LIBRARIES}

@@ -18,7 +18,7 @@ const keyType kEmpty = 0;
 
 const keyType max64 = 18446744073709551615;
 
-const uint64_t kHashTableCapacity = 128 * 1024 * 1024;
+const uint64_t kHashTableCapacity = 2 * 128 * 1024 * 1024;
 
 const uint64_t kNumKeyValues = kHashTableCapacity / 2;//4168188;
 

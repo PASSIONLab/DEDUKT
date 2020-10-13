@@ -445,9 +445,6 @@ void kcounter_supermer_GPU(KeyValue* pHashTable, keyType* d_smers, unsigned char
     int b = 128;
     // int g= (N + (b - 1)) / b;
    
-    /*----------------------------
-    CUDA call: Insert kmers to HT       
-    ------------------------------*/
 
     // Have CUDA calculate the thread block size
     keyType mask = pow(2, 2 * klen) - 1;
@@ -458,8 +455,8 @@ void kcounter_supermer_GPU(KeyValue* pHashTable, keyType* d_smers, unsigned char
 
     unsigned char * h_slens = (unsigned char *) malloc(num_keys * sizeof(unsigned char));
     checkCuda (cudaMemcpy(h_slens, d_slen, num_keys * sizeof(unsigned char), cudaMemcpyDeviceToHost), __LINE__); 
-   // keyType * h_smers = (keyType *) malloc(num_keys * sizeof(keyType));
-   //  checkCuda (cudaMemcpy(h_smers, d_smers, num_keys * sizeof(keyType), cudaMemcpyDeviceToHost), __LINE__); 
+    // keyType * h_smers = (keyType *) malloc(num_keys * sizeof(keyType));
+    // checkCuda (cudaMemcpy(h_smers, d_smers, num_keys * sizeof(keyType), cudaMemcpyDeviceToHost), __LINE__); 
    
 
     int gridsize = ((uint32_t)num_keys + threadblocksize - 1) / threadblocksize;
