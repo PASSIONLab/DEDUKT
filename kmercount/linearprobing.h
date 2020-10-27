@@ -33,5 +33,5 @@ std::vector<KeyValue> iterate_hashtable(KeyValue* hashtable);
 
 void destroy_hashtable(KeyValue* hashtable, int rank);
 
-uint64_t * getKmers_GPU( char *seq, int klen, int nproc, int *owner_counter, int rank);
+uint64_t * getKmers_GPU( char *seq, int klen, int nproc, int *owner_counter, int rank, int BUFF_LEN);
 #endif

@@ -105,6 +105,7 @@ uint64_t compress_smer(string cur_kmer, int len){
 	return c_kmer;
 }
 
+
 uint64_t compress_kmer(string cur_kmer){
 	char *s = new char[KMER_LENGTH];
 	strcpy(s, cur_kmer.c_str()); 
@@ -120,6 +121,36 @@ uint64_t compress_kmer(string cur_kmer){
 	}
 	return c_kmer;
 }
+
+// uint64_t compress_kmer(string cur_kmer){
+
+//         uint64_t c_kmer = 0, cc_kmer = 0;
+//         for (int k = 0; k < KMER_LENGTH; ++k)
+//         {
+//                 char s = cur_kmer[k];
+//                 int j = k % 32;
+//                 size_t x = (s & 4) >> 1;
+//                 c_kmer |= ((x + ((x ^ (s & 2)) >>1)) << (2*(31-j)));
+//                 // switch(s) { //redefined
+//   //                    case 'A': c_kmer |= ((x + (x^1)) << (2*(31-j)));  break;
+//   //                    case 'C': c_kmer |= ((x + (x^0)) << (2*(31-j)));  break;
+//   //                    case 'G': c_kmer |= ((x + (x^3)) << (2*(31-j)));  break;
+//   //                    case 'T': c_kmer |= ((x + (x^2)) << (2*(31-j)));  break;
+//   //            }
+//         }
+//         // const uint64_t mask = ((int64_t) 0x3);
+//  //     uint64_t endmask = 0;
+//  //     if (KMER_LENGTH % 32) {
+//  //       endmask = (((uint64_t) 2) << (2*(31-(KMER_LENGTH%32)) + 1)) - 1;
+//  //       // k == 0 :                0x0000000000000000
+//  //       // k == 1 : 2 << 61  - 1 : 0x3FFFFFFFFFFFFFFF
+//  //       // k == 31: 2 << 1   - 1 : 0x0000000000000003
+//  //     }
+//  //     endmask = ~endmask;
+//  //     c_kmer &= endmask;
+//         return c_kmer;
+// }
+
 
 uint64_t find_minimizer(uint64_t kmer, int mlen){
 	
@@ -260,7 +291,7 @@ void parse_supermer_N_build_kmercounter(uint64_t* recvbuf, unsigned char* len_sm
 
 	std::cout << "rank: " << myrank << ", Smer - CPU HTsize: " << HTsize 
     	<< " #kmers from HT: " << totalPairs << ", ideal #kmers: " << allrank_kmersprocessed << std::endl;
-       MPI_Barrier(MPI_COMM_WORLD);
+       // MPI_Barrier(MPI_COMM_WORLD);
 
     if(myrank == 0)
     std::cout << "Smer - CPU HTsize: " << allrank_hashsize 
@@ -493,7 +524,7 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset, int 
 
 	unsigned char *recv_slen = (unsigned char*) malloc(n_kmers * 2 * sizeof(unsigned char)); 
 	uint64_t *recv_smers = (uint64_t*) malloc(n_kmers * 2 * sizeof(uint64_t)); 
-	MPI_Barrier(MPI_COMM_WORLD);
+	// MPI_Barrier(MPI_COMM_WORLD);
 
 	Exchange_supermers(outgoing_csmers, outgoing_lensmers, recv_smers, recv_slen, sendcnt, recvcnt, n_kmers);
 // 
@@ -501,13 +532,13 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset, int 
 	int totrsmer = 0;
 	for (int i = 0; i < nprocs; ++i)
 		totrsmer += recvcnt[i];
-	MPI_Barrier(MPI_COMM_WORLD);
+	// MPI_Barrier(MPI_COMM_WORLD);
 
 	// cout << "\nTotal send-recv count " << totssmer << " " << totrsmer << endl;
 	parse_supermer_N_build_kmercounter(recv_smers, recv_slen, recvcnt, p_buff_len);
 	// parse_supermer_N_build_kmercounter(c_supermers, len_smers, recvcnt, p_buff_len);
 
-	MPI_Barrier(MPI_COMM_WORLD);
+	// MPI_Barrier(MPI_COMM_WORLD);
 
 	/*********Correctness check*******/
 	for (int j = 0; j < supermers.size(); ++j)

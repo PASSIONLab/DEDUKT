@@ -43,7 +43,8 @@
 #include "../common/stdlib_compatibility.hpp"
 #include "../common/VectorMap.hpp"
 
-#define COMM_ITER 5
+#define COMM_ITER 1
+#define BUFF_SCALE 4
 int MINIMIZER_LENGTH;
 #ifdef SINGLE_EXEC
 extern StaticVars _sv;
@@ -567,7 +568,7 @@ size_t GPU_ParseNPack(vector<string> & seqs, vector< vector<Kmer> > & outgoing, 
 		free(seqs_arr);
 		return nreads;
 	} 
-	sendbuf_GPU = getKmers_GPU(seqs_arr, KMER_LENGTH, nprocs, owner_counter, myrank);
+	sendbuf_GPU = getKmers_GPU(seqs_arr, KMER_LENGTH, nprocs, owner_counter, myrank, BUFF_SCALE);
   	unsigned int seq_len = strlen(seqs_arr);
 	nkmersAllseq_thisBatch = seq_len - KMER_LENGTH + 1;
 	// getKmers_test(seqs_arr);
@@ -645,18 +646,18 @@ size_t GPU_supermer(vector<string> & seqs, vector< vector<Kmer> > & outgoing, in
 		return nreads;
 	} 
 
-	keyType *h_send_smers       = (keyType *) malloc ( nkmers_smer_batch * 2 * sizeof(keyType));
-	unsigned char *h_send_slens = (unsigned char *) malloc ( nkmers_smer_batch * 2 * sizeof(unsigned char));
+	keyType *h_send_smers       = (keyType *) malloc ( nkmers_smer_batch * BUFF_SCALE * sizeof(keyType));
+	unsigned char *h_send_slens = (unsigned char *) malloc ( nkmers_smer_batch * BUFF_SCALE * sizeof(unsigned char));
 	
 	//***** Build Supermers on GPU *****
 	// getSupermers_CPU(seqs_arr, KMER_LENGTH, MINIMIZER_LENGTH, nprocs, owner_counter, h_send_smers, h_send_slens, nkmers_smer_batch,  myrank);	
-	getSupermers_GPU(seqs_arr, KMER_LENGTH, MINIMIZER_LENGTH, nprocs, owner_counter, h_send_smers, h_send_slens, nkmers_smer_batch,  myrank);
+	getSupermers_GPU(seqs_arr, KMER_LENGTH, MINIMIZER_LENGTH, nprocs, owner_counter, h_send_smers, h_send_slens, nkmers_smer_batch,  myrank, BUFF_SCALE);
 	tot_GPUsmer_build += MPI_Wtime() -  start_gpu_smer ;
 	
 	//***** Exchange supermers on CPU *****
-	start_gpu_smer = MPI_Wtime();
-	Exchange_GPUsupermers(h_send_smers, h_send_slens, sendcnt, recvcnt, nkmers_smer_batch);
-	tot_GPUsmer_exch += MPI_Wtime() -  start_gpu_smer ;
+	// start_gpu_smer = MPI_Wtime();
+	double exch_gpu_smer = Exchange_GPUsupermers(h_send_smers, h_send_slens, sendcnt, recvcnt, nkmers_smer_batch);
+	tot_GPUsmer_exch += exch_gpu_smer;//MPI_Wtime() -  start_gpu_smer ;
 	
 	//***** Parse supermers and build kcounter on GPU *****	
 	start_gpu_smer = MPI_Wtime();
@@ -681,18 +682,18 @@ size_t GPU_supermer(vector<string> & seqs, vector< vector<Kmer> > & outgoing, in
     }
 
     size_t allrank_hashsize = 0, allrank_totalPairs = 0;
-    CHECK_MPI( MPI_Reduce(&HTsize_smer, &allrank_hashsize,  1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
-    CHECK_MPI( MPI_Reduce(&totalPairs_smer, &allrank_totalPairs, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
+    // CHECK_MPI( MPI_Reduce(&HTsize_smer, &allrank_hashsize,  1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
+    // CHECK_MPI( MPI_Reduce(&totalPairs_smer, &allrank_totalPairs, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
   
 	size_t allrank_kmersthisbatch = 0;
 	size_t allrank_kmersprocessed = 0;
-    CHECK_MPI( MPI_Reduce(&nkmers_smer_batch, &allrank_kmersthisbatch, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
-    CHECK_MPI( MPI_Reduce(&nkmers_smer_all, &allrank_kmersprocessed, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
+  //   CHECK_MPI( MPI_Reduce(&nkmers_smer_batch, &allrank_kmersthisbatch, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
+  //   CHECK_MPI( MPI_Reduce(&nkmers_smer_all, &allrank_kmersprocessed, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
 
-   if(myrank == 0){
-    	cout << "\nBatch: " << batch <<" - Smer based: GPU HTsize: " << allrank_hashsize << ", #kmers from HT: " << allrank_totalPairs 
-		<< " expected #kmers " << allrank_kmersprocessed << endl;
-    } 
+  //  if(myrank == 0){
+  //   	cout << "\nBatch: " << batch <<" - Smer based: GPU HTsize: " << allrank_hashsize << ", #kmers from HT: " << allrank_totalPairs 
+		// << " expected #kmers " << allrank_kmersprocessed << endl;
+  //   } 
 	free(seqs_arr);
 	// cout << tot_GPUsmer_build << " " <<  tot_GPUsmer_exch << " " << tot_GPU_smer_kcounter << endl;
 	return nreads;
@@ -880,14 +881,14 @@ double GPU_Exchange(vector< vector<Kmer> > & outgoing, vector<keyType> & mykmers
 	DBG("totsend=%lld totrecv=%lld\n", (lld) totsend, (lld) totrecv);
     
     int n_kmers = nkmersAllseq_thisBatch;
-    int p_buff_len = ((n_kmers * 2) + nprocs - 1)/nprocs;
+    int p_buff_len = ((n_kmers * BUFF_SCALE) + nprocs - 1)/nprocs;
 
     for (int i=0; i < nprocs; i++) {
         sdispls[i] = i * p_buff_len;
         rdispls[i] = i * p_buff_len;
     }
 
-    uint64_t* recvbuf = (uint64_t*) malloc(n_kmers * 2 * sizeof(uint64_t)); 
+    uint64_t* recvbuf = (uint64_t*) malloc(n_kmers * BUFF_SCALE * sizeof(uint64_t)); 
 	
 	double exch_time = MPI_Wtime(); //so weird
 	for (int i = 0; i < COMM_ITER; ++i)
@@ -896,32 +897,32 @@ double GPU_Exchange(vector< vector<Kmer> > & outgoing, vector<keyType> & mykmers
 	tot_alltoallv_GPU += exch_time;
 	
 	/******* Performance reporting *******/
-	performance_report_time = MPI_Wtime();
-	const int SND=0, RCV=1;
-	int64_t local_counts[2];
-	local_counts[SND] = totsend;
-	local_counts[RCV] = totrecv;
+	// performance_report_time = MPI_Wtime();
+	// const int SND=0, RCV=1;
+	// int64_t local_counts[2];
+	// local_counts[SND] = totsend;
+	// local_counts[RCV] = totrecv;
 
-	int64_t global_mins[2]={0,0};
-	CHECK_MPI( MPI_Reduce(&local_counts, &global_mins, 2, MPI_LONG_LONG, MPI_MIN, 0, MPI_COMM_WORLD) );
-	int64_t global_maxs[2]={0,0};
-	CHECK_MPI( MPI_Reduce(&local_counts, &global_maxs, 2, MPI_LONG_LONG, MPI_MAX, 0, MPI_COMM_WORLD) );
-	int64_t global_sums[2] = {0,0};
-	CHECK_MPI( MPI_Reduce(&local_counts, &global_sums, 2, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
+	// int64_t global_mins[2]={0,0};
+	// CHECK_MPI( MPI_Reduce(&local_counts, &global_mins, 2, MPI_LONG_LONG, MPI_MIN, 0, MPI_COMM_WORLD) );
+	// int64_t global_maxs[2]={0,0};
+	// CHECK_MPI( MPI_Reduce(&local_counts, &global_maxs, 2, MPI_LONG_LONG, MPI_MAX, 0, MPI_COMM_WORLD) );
+	// int64_t global_sums[2] = {0,0};
+	// CHECK_MPI( MPI_Reduce(&local_counts, &global_sums, 2, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
 
-	double global_min_time = 0.0;
-	CHECK_MPI( MPI_Reduce(&exch_time, &global_min_time, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD) );
-	double global_max_time = 0.0;
-	CHECK_MPI( MPI_Reduce(&exch_time, &global_max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD) );
-	double global_sum_time = 0.0;
-	CHECK_MPI( MPI_Reduce(&exch_time, &global_sum_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD) );
+	// double global_min_time = 0.0;
+	// CHECK_MPI( MPI_Reduce(&exch_time, &global_min_time, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD) );
+	// double global_max_time = 0.0;
+	// CHECK_MPI( MPI_Reduce(&exch_time, &global_max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD) );
+	// double global_sum_time = 0.0;
+	// CHECK_MPI( MPI_Reduce(&exch_time, &global_sum_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD) );
 
-	int bytedata = 8;//sizeof(uint64_t);
-	serial_printf("KmerMatch:%s sent min %lld bytes, sent max %lld bytes, sent avg %lld bytes, recv min %lld bytes, \
-		recv max %lld bytes, recv avg %lld bytes, in min %.3f s, max %.3f s, avg %.3f s\n", __FUNCTION__, global_mins[SND]*bytedata, \
-		global_maxs[SND]*bytedata, (global_sums[SND]/nprocs)*bytedata, global_mins[RCV]*bytedata, global_maxs[RCV]*bytedata, (global_sums[RCV]/nprocs)*bytedata, \
-		global_min_time, global_max_time, global_sum_time/nprocs);
-	performance_report_time = MPI_Wtime()-performance_report_time;
+	// int bytedata = 8;//sizeof(uint64_t);
+	// // serial_printf("KmerMatch:%s sent min %lld bytes, sent max %lld bytes, sent avg %lld bytes, recv min %lld bytes, \
+	// // 	recv max %lld bytes, recv avg %lld bytes, in min %.3f s, max %.3f s, avg %.3f s\n", __FUNCTION__, global_mins[SND]*bytedata, \
+	// // 	global_maxs[SND]*bytedata, (global_sums[SND]/nprocs)*bytedata, global_mins[RCV]*bytedata, global_maxs[RCV]*bytedata, (global_sums[RCV]/nprocs)*bytedata, \
+	// // 	global_min_time, global_max_time, global_sum_time/nprocs);
+	// performance_report_time = MPI_Wtime()-performance_report_time;
 	/**************/
 
     nkmers_gpu = 0;
@@ -946,42 +947,49 @@ double GPU_Exchange(vector< vector<Kmer> > & outgoing, vector<keyType> & mykmers
 }
 
 double tot_GPUsmer_alltoallv = 0;
+
 double Exchange_GPUsupermers(keyType* outgoing, unsigned char* len_smers, int *sendcnt, int *recvcnt, int nkmers)
 {
-	MPI_Pcontrol(1,"Exchange");
+	double performance_report_time = 0.0;
 	double tot_exch_time = MPI_Wtime();
-	double performance_report_time = 0.0; 
+ 
 
 	// int * sendcnt = new int[nprocs];
 	int * sdispls = new int[nprocs];
 	int * rdispls = new int[nprocs];
 	// int * recvcnt = new int[nprocs];
 
-    // cout << "Exchange GPU supermers " << endl;
-    int size = nprocs;
+    uint64_t totsend = 0, totrecv = 0;
     for (int i=0; i < nprocs; i++) {
-    	// outgoing[i].clear(); // CPU parseNPack is populating this..remove when that call is removed
-        sendcnt[i] = owner_counter[i];
+    	sendcnt[i] = owner_counter[i];
+        totsend += sendcnt[i];
     }
     free(owner_counter);
    
 	CHECK_MPI( MPI_Alltoall(sendcnt, 1, MPI_INT, recvcnt, 1, MPI_INT, MPI_COMM_WORLD) );  // share the request counts
+    
+    // cout << "recv count " ;
+    for (int i=0; i < nprocs; i++) {
+ 		totrecv += recvcnt[i];
+ 		// cout << recvcnt[i] << " "; 
+    }
+    // cout << endl;
+    
+	// int64_t totsend = accumulate(sendcnt, sendcnt+nprocs, static_cast<int64_t>(0));
+	// if (totsend < 0) { cerr << myrank << " detected overflow in totsend calculation, line" << __LINE__ << endl; }
+	// int64_t totrecv = accumulate(recvcnt, recvcnt+nprocs, static_cast<int64_t>(0));
+	// if (totrecv < 0) { cerr << myrank << " detected overflow in totrecv calculation, line" << __LINE__ << endl; }
+	// DBG("totsend=%lld totrecv=%lld\n", (lld) totsend, (lld) totrecv);
 
-	int64_t totsend = accumulate(sendcnt, sendcnt+nprocs, static_cast<int64_t>(0));
-	if (totsend < 0) { cerr << myrank << " detected overflow in totsend calculation, line" << __LINE__ << endl; }
-	int64_t totrecv = accumulate(recvcnt, recvcnt+nprocs, static_cast<int64_t>(0));
-	if (totrecv < 0) { cerr << myrank << " detected overflow in totrecv calculation, line" << __LINE__ << endl; }
-	DBG("totsend=%lld totrecv=%lld\n", (lld) totsend, (lld) totrecv);
-       
-    int p_buff_len = ((nkmers * 2) + nprocs - 1)/nprocs;
+    int p_buff_len = ((nkmers * BUFF_SCALE) + nprocs - 1)/nprocs;
 
     for (int i=0; i < nprocs; i++) {
         sdispls[i] = i * p_buff_len;
         rdispls[i] = i * p_buff_len;
     }
     // int *d_recvbuf;
- 	uint64_t* recvbuf = (uint64_t*) malloc(nkmers * 2 * sizeof(uint64_t)); 
- 	unsigned char* recvbuf_len = (unsigned char*) malloc(nkmers * 2 * sizeof(unsigned char)); 
+ 	uint64_t* recvbuf = (uint64_t*) malloc(nkmers * BUFF_SCALE * sizeof(uint64_t)); 
+ 	unsigned char* recvbuf_len = (unsigned char*) malloc(nkmers * BUFF_SCALE * sizeof(unsigned char)); 
 
 	double exch_time = MPI_Wtime();
 	for (int i = 0; i < COMM_ITER; ++i)
@@ -993,34 +1001,35 @@ double Exchange_GPUsupermers(keyType* outgoing, unsigned char* len_smers, int *s
 	tot_GPUsmer_alltoallv += exch_time;
 	
 	/******* Performance reporting *******/
-	performance_report_time = MPI_Wtime();
-	const int SND=0, RCV=1;
-	int64_t local_counts[2];
-	local_counts[SND] = totsend;
-	local_counts[RCV] = totrecv;
+	// performance_report_time = MPI_Wtime();
+	// const int SND=0, RCV=1;
+	// int64_t local_counts[2];
+	// local_counts[SND] = totsend;
+	// local_counts[RCV] = totrecv;
 
-	int64_t global_mins[2]={0,0};
-	CHECK_MPI( MPI_Reduce(&local_counts, &global_mins, 2, MPI_LONG_LONG, MPI_MIN, 0, MPI_COMM_WORLD) );
-	int64_t global_maxs[2]={0,0};
-	CHECK_MPI( MPI_Reduce(&local_counts, &global_maxs, 2, MPI_LONG_LONG, MPI_MAX, 0, MPI_COMM_WORLD) );
-	int64_t global_sums[2] = {0,0};
-	CHECK_MPI( MPI_Reduce(&local_counts, &global_sums, 2, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
+	// int64_t global_mins[2]={0,0};
+	// CHECK_MPI( MPI_Reduce(&local_counts, &global_mins, 2, MPI_LONG_LONG, MPI_MIN, 0, MPI_COMM_WORLD) );
+	// int64_t global_maxs[2]={0,0};
+	// CHECK_MPI( MPI_Reduce(&local_counts, &global_maxs, 2, MPI_LONG_LONG, MPI_MAX, 0, MPI_COMM_WORLD) );
+	// int64_t global_sums[2] = {0,0};
+	// CHECK_MPI( MPI_Reduce(&local_counts, &global_sums, 2, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
 
-	double global_min_time = 0.0;
-	CHECK_MPI( MPI_Reduce(&exch_time, &global_min_time, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD) );
-	double global_max_time = 0.0;
-	CHECK_MPI( MPI_Reduce(&exch_time, &global_max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD) );
-	double global_sum_time = 0.0;
-	CHECK_MPI( MPI_Reduce(&exch_time, &global_sum_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD) );
+	// double global_min_time = 0.0;
+	// CHECK_MPI( MPI_Reduce(&exch_time, &global_min_time, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD) );
+	// double global_max_time = 0.0;
+	// CHECK_MPI( MPI_Reduce(&exch_time, &global_max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD) );
+	// double global_sum_time = 0.0;
+	// CHECK_MPI( MPI_Reduce(&exch_time, &global_sum_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD) );
 
-	int bytedata = 9;//sizeof(uint64_t) + unsigned char;
-	serial_printf("KmerMatch:%s sent min %lld bytes, sent max %lld bytes, sent avg %lld bytes, recv min %lld bytes, \
-		recv max %lld bytes, recv avg %lld bytes, in min %.3f s, max %.3f s, avg %.3f s\n", __FUNCTION__, global_mins[SND]*bytedata, \
-		global_maxs[SND]*bytedata, (global_sums[SND]/nprocs)*bytedata, global_mins[RCV]*bytedata, global_maxs[RCV]*bytedata, (global_sums[RCV]/nprocs)*bytedata, \
-		global_min_time, global_max_time, global_sum_time/nprocs);
-	performance_report_time = MPI_Wtime()-performance_report_time;
+	// int bytedata = 9;//sizeof(uint64_t) + unsigned char;
+	// serial_printf("KmerMatch:%s sent min %lld bytes, sent max %lld bytes, sent avg %lld bytes, recv min %lld bytes, \
+	// 	recv max %lld bytes, recv avg %lld bytes, in min %.3f s, max %.3f s, avg %.3f s\n", __FUNCTION__, global_mins[SND]*bytedata, \
+	// 	global_maxs[SND]*bytedata, (global_sums[SND]/nprocs)*bytedata, global_mins[RCV]*bytedata, global_maxs[RCV]*bytedata, (global_sums[RCV]/nprocs)*bytedata, \
+	// 	global_min_time, global_max_time, global_sum_time/nprocs);
+	// performance_report_time = MPI_Wtime()-performance_report_time;
 	/**************/
-	
+	// Create events for GPU timing
+
 	checkCuda( cudaMalloc(&d_recv_smers, sizeof(keyType) * totrecv), __LINE__); 
 	checkCuda( cudaMalloc(&d_recv_slens, sizeof(unsigned char) * totrecv), __LINE__);
 	size_t num_keys = 0;
@@ -1037,8 +1046,8 @@ double Exchange_GPUsupermers(keyType* outgoing, unsigned char* len_smers, int *s
 	if(totrecv > 0)  {free(recvbuf); free(recvbuf_len);}
 
 	delete(rdispls); delete(sdispls); 
-    tot_exch_time=MPI_Wtime()-tot_exch_time-performance_report_time;
-	
+    tot_exch_time=MPI_Wtime()-tot_exch_time; //-performance_report_time;
+
 	return tot_exch_time;
 }
 
@@ -1813,11 +1822,11 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
     tots[4] = tot_raw;
     tots[5] = t02 - t01;
     tots_GPU[0] = tot_pack_GPU;
-    tots_GPU[1] = tot_exch_GPU - (tot_alltoallv_GPU * (COMM_ITER - 1) );
+    tots_GPU[1] = tot_exch_GPU; //- (tot_alltoallv_GPU * (COMM_ITER - 1) );
     tots_GPU[2] = tot_process_GPU;
     tots_GPU[3] = tot_alltoallv_GPU;
     tots_GPU[4] = tot_GPUsmer_build;
-    tots_GPU[5] = tot_GPUsmer_exch - (tot_GPUsmer_alltoallv * (COMM_ITER - 1) );;
+    tots_GPU[5] = tot_GPUsmer_exch;// - (tot_GPUsmer_alltoallv * (COMM_ITER - 1) );;
     tots_GPU[6] = tot_GPU_smer_kcounter;
     tots_GPU[7] = tot_GPUsmer_alltoallv;
 
@@ -1899,6 +1908,7 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
 	    CHECK_MPI( MPI_Reduce(&HTsize_GPU, &allrank_hashsize,  1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
 	    CHECK_MPI( MPI_Reduce(&kmersFromHT_GPU, &allrank_totalPairs, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
 	    CHECK_MPI( MPI_Reduce(&kmersprocessed, &allrank_kmersprocessed, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
+
  		CHECK_MPI( MPI_Reduce(&nsmers_all, &allrank_nsmers, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
 
 	    if(myrank == 0){

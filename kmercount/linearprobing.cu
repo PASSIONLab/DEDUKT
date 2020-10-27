@@ -328,22 +328,22 @@ __global__ void gpu_parseKmerNFillupBuff(char *seq, char *kmers, int klen, unsig
         }
         if(validKmer ) {
 
-            keyType myhash = cuda_murmur3_64(longs); // remove & with HTcapacity in func
-            // keyType myhash = cuda_MurmurHash3_x64_128((const void *)&longs, 8, 313);// & (nproc - 1);
+            // keyType myhash = cuda_murmur3_64(longs); // remove & with HTcapacity in func
+            keyType myhash = cuda_MurmurHash3_x64_128((const void *)&longs, 8, 313);// & (nproc - 1);
             double range = static_cast<double>(myhash) * static_cast<double>(nproc);
             size_t owner = range / max64;
 
             int old_count = atomicAdd(&owner_counter[owner],1); 
  
-            if(old_count >= p_buff_len * 2 ) {
-                printf("Overflow!! MISSION ABORT!!\n");
+            if(old_count > p_buff_len) {
+                printf("Overflow!! MISSION ABORT!!\n"); return;
             }
             outgoing[owner * p_buff_len + old_count]=longs; //hash (longs)   
         }   
     }
 }
 
-uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int rank){
+uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int rank, int BUFF_SCALE){
 
     int count, devId;
     char *d_kmers, *d_seq;
@@ -369,15 +369,15 @@ uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int 
     cuda_timer_start(start);
    
     // CUDA mallocs
-    checkCuda (cudaMalloc(&d_outgoing, n_kmers*2 * sizeof(uint64_t)), __LINE__);  // giving 2x space to each node 
+    checkCuda (cudaMalloc(&d_outgoing, n_kmers * BUFF_SCALE * sizeof(uint64_t)), __LINE__);  // giving 2x space to each node 
     checkCuda (cudaMalloc(&d_seq, seq_len * sizeof(char)), __LINE__);
     checkCuda (cudaMalloc(&d_owner_counter, nproc * sizeof(int)), __LINE__);
     
     checkCuda (cudaMemcpy(d_seq, seq, seq_len * sizeof(char) , cudaMemcpyHostToDevice), __LINE__);
-    cudaMemset(d_outgoing,  0, n_kmers*2 * sizeof(uint64_t));
+    cudaMemset(d_outgoing,  0, n_kmers * BUFF_SCALE * sizeof(uint64_t));
     cudaMemset(d_owner_counter,  0, sizeof(int) * nproc);
 
-    int p_buff_len = ((n_kmers * 2) + nproc - 1)/nproc;
+    int p_buff_len = ((n_kmers * BUFF_SCALE) + nproc - 1)/nproc;
     int b = 128;
     int g = (seq_len + (b - 1)) / b;
     int per_block_seq_len = (seq_len + (g - 1)) / g;
@@ -389,8 +389,8 @@ uint64_t * getKmers_GPU(char *seq, int klen, int nproc, int *owner_counter, int 
     // printf("    GPU parseNPack: n %f ms (%f million kmers/second)\n", 
     //      milliseconds, n_kmers / (double)seconds / 1000000.0f);
 
-    h_outgoing = (uint64_t *) malloc ( n_kmers * 2 * sizeof(uint64_t));
-    checkCuda (cudaMemcpy(h_outgoing, d_outgoing, n_kmers * 2 * sizeof(uint64_t) , cudaMemcpyDeviceToHost), __LINE__); 
+    h_outgoing = (uint64_t *) malloc ( n_kmers * BUFF_SCALE * sizeof(uint64_t));
+    checkCuda (cudaMemcpy(h_outgoing, d_outgoing, n_kmers * BUFF_SCALE * sizeof(uint64_t) , cudaMemcpyDeviceToHost), __LINE__); 
     checkCuda (cudaMemcpy(owner_counter, d_owner_counter, nproc * sizeof(int) , cudaMemcpyDeviceToHost), __LINE__); 
    
     uint64_t total_counter = 0;
