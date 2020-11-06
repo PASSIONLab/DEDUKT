@@ -1,5 +1,7 @@
 Requirements
 
+Giulia test
+
 1. A working Message Passing Interface (MPI) environment
         (a) Open MPI, https://www.open-mpi.org/
         (b) MPICH2, http://www.mcs.anl.gov/project/mpich-high-performance-portable-implementation-mpi
