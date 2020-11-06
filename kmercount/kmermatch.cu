@@ -92,7 +92,7 @@ extern "C" {
 #include <inttypes.h>
 #include "../common/optlist.h"
 
-#include "../readoverlap/ReadOverlapper.h"
+// #include "../readoverlap/ReadOverlapper.h"
 
 #include "kmermatch.h"
 #include "kmerhashtable.h"
@@ -2352,20 +2352,20 @@ void insert_hashtable_cpu(keyType* mykmers_GPU, int nkeys){
 				}
 				if(myrank  == 0)
 				{
-					cout << "***************** diBELLA k-mer analysis (ufx generation) and overlap *****************" << endl;
-					cout << "You are running with the following settings:" << endl;
-					cout << "\tOverlaps caching is " << (cached_overlaps? "" : " NOT") << " enabled." << endl;
-					if (per_thread_overlaps) { cout << "\tOutputting overlaps to per thread files." << endl; }
-					cout << "\tOther I/O caching is" << (cached_io? "" : " NOT") << " enabled." << endl;
-					cout << "\tI/O base directory: " << base_dir << endl;
+					cout << endl << "************ k-mer analysis (supports CPU and NVIDIA GPU platforms) ************" << endl << endl;
+					switch(type){
+						case 0: cout << "\tRunning kmer based kmer-counter on CPU" << endl;
+						case 1: cout << "\tRunning kmer based kmer-counter on NVIDIA GPU" << endl;
+						case 2: cout << "\tRunning supermer based kmer-counter on CPU" << endl;
+						case 3: cout << "\tRunning supermer based kmer-counter on NVIDIA-GPU" << endl;
+					}
 					cout << "\tInput fastq file list: " << input_fofn <<endl;
-					cout << "\tOutput overlaps file name: " << overlap_filename << endl;
 					cout << "\tK-mer length = " << KMER_LENGTH << endl;
 					cout << "\tMax k-mer length (internal) = " << MAX_KMER_SIZE << endl;
-					cout << "\tMax read-records per k-mer = " << reliable_max << endl;
-					cout << "\tMax representable read length = " << sizeof(PosInRead) << " bytes" << endl;
-					cout << "\tMax number of seeds to retain per candidate = " << max_num_seeds << endl;
-					cout << "\tMinimum distance between retained seeds = " << min_seed_distance << endl;
+					// cout << "\tMax read-records per k-mer = " << reliable_max << endl;
+					// cout << "\tMax representable read length = " << sizeof(PosInRead) << " bytes" << endl;
+					// cout << "\tMax number of seeds to retain per candidate = " << max_num_seeds << endl;
+					// cout << "\tMinimum distance between retained seeds = " << min_seed_distance << endl;
 				}
 
 				time_temp = MPI_Wtime(); // start cardinality estimate timer
@@ -2839,7 +2839,6 @@ void insert_hashtable_cpu(keyType* mykmers_GPU, int nkeys){
 
 				CHECK_MPI( MPI_Init(&argc, &argv) );
 				OPEN_MY_LOG("kmermatch");
-				serial_printf("Starting diBELLA version %s on %d threads\n", DIBELLA_VERSION, THREADS);
 				int ret = kmermatch_main(argc, argv);
 				MPI_Finalize();
 				return ret;

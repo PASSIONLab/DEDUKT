@@ -26,7 +26,7 @@ add_subdirectory(fqreader)
 add_subdirectory(loadfq)
 add_subdirectory(kmercount)
 #add_subdirectory(readoverlap) # not used after combining into kmermatch
-add_subdirectory(align)
+# add_subdirectory(align)
 add_subdirectory(main)
 
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/scripts

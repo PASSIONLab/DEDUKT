@@ -154,17 +154,17 @@ object			SOURCES				readufx.cpp
 	#      set(myTargets ${myTargets} SNPidentify-${HIPMER_KMER_LEN})
 	#    ENDIF()
 	
-#overlaps_objs / _obs
-		set(NAME ReadOverlap-${MAX_NUM_READS}-${HIPMER_KMER_LEN})
-		create_library(
-			TYPE 				OBJECT
-			TARGET_NAME			${NAME}
-			OUTPUT_NAME			${NAME}
-			SOURCES				${PROJECT_SOURCE_DIR}/readoverlap/ReadOverlapper.cpp ${PROJECT_SOURCE_DIR}/readoverlap/main.cpp
-			HEADERS				${PROJECT_SOURCE_DIR}/readoverlap/ReadOverlapper.h ${PROJECT_SOURCE_DIR}/readoverlap/overlap.h
-			DEFINITIONS			${KMER_DEFS} SINGLE_EXEC=1
-			CXXFLAGS			${MPI_CXX_COMPILE_FLAGS})
-		add_readid_defs(${NAME})
+# #overlaps_objs / _obs
+# 		set(NAME ReadOverlap-${MAX_NUM_READS}-${HIPMER_KMER_LEN})
+# 		create_library(
+# 			TYPE 				OBJECT
+# 			TARGET_NAME			${NAME}
+# 			OUTPUT_NAME			${NAME}
+# 			SOURCES				${PROJECT_SOURCE_DIR}/readoverlap/ReadOverlapper.cpp ${PROJECT_SOURCE_DIR}/readoverlap/main.cpp
+# 			HEADERS				${PROJECT_SOURCE_DIR}/readoverlap/ReadOverlapper.h ${PROJECT_SOURCE_DIR}/readoverlap/overlap.h
+# 			DEFINITIONS			${KMER_DEFS} SINGLE_EXEC=1
+# 			CXXFLAGS			${MPI_CXX_COMPILE_FLAGS})
+# 		add_readid_defs(${NAME})
 		
 # kmermatch
 		set(NAME kmermatch-${MAX_NUM_READS}-${HIPMER_KMER_LEN})
@@ -174,7 +174,7 @@ object			SOURCES				readufx.cpp
 			OUTPUT_NAME			${NAME}
 			DEFINITIONS			${KMER_DEFS}
 			CXXFLAGS			${MPI_CXX_COMPILE_FLAGS} ${CMAKE_LINK_FLAGS} ${MPI_CXX_LINK_FLAGS}
-			OBJECT_LIBRARIES	common fqreader MURMURHASH readufx-${MAX_NUM_READS}-${HIPMER_KMER_LEN} ReadOverlap-${MAX_NUM_READS}-${HIPMER_KMER_LEN} LIBBLOOM-NOUPC MPIType KmerObjects-${HIPMER_KMER_LEN} kmermatch-${MAX_NUM_READS}-${HIPMER_KMER_LEN}-NOUPC
+			OBJECT_LIBRARIES	common fqreader MURMURHASH readufx-${MAX_NUM_READS}-${HIPMER_KMER_LEN} LIBBLOOM-NOUPC MPIType KmerObjects-${HIPMER_KMER_LEN} kmermatch-${MAX_NUM_READS}-${HIPMER_KMER_LEN}-NOUPC
 			LINK_LIBRARIES		${MPI_CXX_LIBRARIES} ${ZLIB_LIBRARIES} ${RT_LIBRARIES} ${libc} gpu_kmer  
 			INSTALL_DESTINATION ${CMAKE_INSTALL_PREFIX}/bin
 		)

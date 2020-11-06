@@ -16,8 +16,8 @@
 #include "../common/MPIUtils.h" // CHECK_MPI()
 #include "../common/common.h"
 //#include "../common/optlist.h"
-#include "../readoverlap/overlap.h" // overlap_main()
-#include "../align/align.h" // align_main()
+// #include "../readoverlap/overlap.h" // overlap_main()
+// #include "../align/align.h" // align_main()
 #include "../kmercount/kmermatch.h"
 #include "../kmercount/kmermatch.h" // kmermatch_main()
 #include "../loadfq/loadfq.h" // loadfq_main()
@@ -342,19 +342,19 @@ int main(int argc, char ** argv) {
 
 	// could use the histogram to calculate things at this point... see hipmer/main/main.c ~471
 
-#ifndef KMERA_ONLY
-	//
-	// compute local alignments for each read-read pair
-	//
-	int alignment_ran;
-	char alignments_out[1024];
-	sprintf(alignments_out, "alignments-%d", kmer_len);
-	alignment_ran = exec_stage(cfg.stages, NOT_SCAFF, alignment_main, name_i("alignment", kmer_len),
-						 "-k %d", kmer_len, "-q %d", max_seeds, "-b %s", bella_settings,
-						 "-m %s", overlaps_fname, "-o %s", alignments_out, "-i %s", all_inputs_fofn,
-						 "-B %B", cfg.cached_io, "-a %B", cached_overlaps, "-p %B", use_perthread, NULL);
-	CHECK_MPI( MPI_Barrier(MPI_COMM_WORLD) );
-#endif
+// #ifndef KMERA_ONLY
+// 	//
+// 	// compute local alignments for each read-read pair
+// 	//
+// 	int alignment_ran;
+// 	char alignments_out[1024];
+// 	sprintf(alignments_out, "alignments-%d", kmer_len);
+// 	alignment_ran = exec_stage(cfg.stages, NOT_SCAFF, alignment_main, name_i("alignment", kmer_len),
+// 						 "-k %d", kmer_len, "-q %d", max_seeds, "-b %s", bella_settings,
+// 						 "-m %s", overlaps_fname, "-o %s", alignments_out, "-i %s", all_inputs_fofn,
+// 						 "-B %B", cfg.cached_io, "-a %B", cached_overlaps, "-p %B", use_perthread, NULL);
+// 	CHECK_MPI( MPI_Barrier(MPI_COMM_WORLD) );
+// #endif
 
 	//
 	// clean-up
