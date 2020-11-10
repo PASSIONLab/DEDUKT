@@ -8,14 +8,13 @@
 
 ## Building and Installing
        
- Default Build and Installation
- 1. To build and install automatically, from the source directory run:
+From the source directory run (the following example is for summit):
  ```
-    $  sh install.sh
+    $  sh install.sh scripts/install-environments/summitgpu-env.sh
 ```
  To build the Debug version run:
  ```
-    $  DEBUG=1 sh install.sh
+    $  DEBUG=1 sh install.sh scripts/install-environments/summitgpu-env.sh
 ```
 Some variables you may want to redefine are:
   BUILD_DIR     :    the path to your desired build directory
@@ -63,7 +62,7 @@ Additionally, to customize particular feature settings, add them to the cmake co
 
 Examples of running a batch job on summit using 64 nodes (384 GPUs, 6 GPUs each node) can be found in scripts/submit_64node.lsf
 
-## More Build details
+## More details on building and installing
 Some (advanced) program-specific cmake variables of interest:
     TIGHT_READS ; Enable this optimization to reduce memory usage ONLY IF all reads in the input set are 
                   (strictly) shorter than 65,536 bps (OR) if k-mer/seed positions are not relevant for 
