@@ -144,27 +144,6 @@ object			SOURCES				readufx.cpp
 		)
 		add_readid_defs(${NAME})
 		
-	#    IF (HIPMER_FULL_BUILD)
-	#      # SNPidentify
-	#      add_executable(SNPidentify-${HIPMER_KMER_LEN} SNPidentify.cpp $<TARGET_OBJECTS:KmerObjects-${HIPMER_KMER_LEN}> $<TARGET_OBJECTS:HASH_FUNCS>)
-	##      add_dependencies(SNPidentify-${HIPMER_KMER_LEN} REPLACE_VERSION_H)
-	#      set_target_properties(SNPidentify-${HIPMER_KMER_LEN} PROPERTIES COMPILE_FLAGS "${MPI_CXX_COMPILE_FLAGS}")
-	#      target_link_libraries(SNPidentify-${HIPMER_KMER_LEN} ${MPI_CXX_LIBRARIES} ${ZLIB_LIBRARIES} ${RT_LIBRARIES} ${libc})
-	#      add_kmer_defs(SNPidentify-${HIPMER_KMER_LEN})
-	#      set(myTargets ${myTargets} SNPidentify-${HIPMER_KMER_LEN})
-	#    ENDIF()
-	
-# #overlaps_objs / _obs
-# 		set(NAME ReadOverlap-${MAX_NUM_READS}-${HIPMER_KMER_LEN})
-# 		create_library(
-# 			TYPE 				OBJECT
-# 			TARGET_NAME			${NAME}
-# 			OUTPUT_NAME			${NAME}
-# 			SOURCES				${PROJECT_SOURCE_DIR}/readoverlap/ReadOverlapper.cpp ${PROJECT_SOURCE_DIR}/readoverlap/main.cpp
-# 			HEADERS				${PROJECT_SOURCE_DIR}/readoverlap/ReadOverlapper.h ${PROJECT_SOURCE_DIR}/readoverlap/overlap.h
-# 			DEFINITIONS			${KMER_DEFS} SINGLE_EXEC=1
-# 			CXXFLAGS			${MPI_CXX_COMPILE_FLAGS})
-# 		add_readid_defs(${NAME})
 		
 # kmermatch
 		set(NAME kmermatch-${MAX_NUM_READS}-${HIPMER_KMER_LEN})
@@ -199,13 +178,6 @@ object			SOURCES				readufx.cpp
 	ENDFOREACH() # HIPMER_KMER_LENGTHS
 ENDFOREACH() # MAX_NUM_READS
 
-#set_source_files_properties(check_hugepages.c PROPERTIES LANGUAGE "C" )
-#ADD_EXECUTABLE(check_hugepages check_hugepages.c)
-#SET_TARGET_PROPERTIES(check_hugepages PROPERTIES
-#                          COMPILE_FLAGS "${CMAKE_C_FLAGS} ${MPI_C_COMPILE_FLAGS} ${OpenMP_C_FLAGS}"
-#                          LINK_FLAGS "${CMAKE_LINK_FLAGS} ${OpenMP_EXTRA_LINKER_FLAGS}")
-#TARGET_LINK_LIBRARIES(check_hugepages  ${MPI_CXX_LIBRARIES} ${ZLIB_LIBRARIES} ${RT_LIBRARIES} ${libc})
-#INSTALL(TARGETS check_hugepages DESTINATION  ${CMAKE_INSTALL_PREFIX}/bin/ )
 
 set(NAME check_hugepages)
 create_executable(

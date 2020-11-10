@@ -1,9 +1,5 @@
- Build:
 
- DEFS="-DKMERA_ONLY=1 -DMAX_NUM_READS_LIST=4;8;16" DEBUG=1 sh install.sh scripts/install-environments/summitgpu-env.sh 
-
-
-run:
+Load summit env:
 module swap xl gcc #/8.1.1
 module load cuda
 module load cmake/3.15.2
@@ -11,8 +7,13 @@ module load cmake/3.15.2
 CC=mpicc #gcc #$(which cc)
 CXX=mpic++ #g++ #$(which CC)
 
+Build:
+
+DEFS="-DKMERA_ONLY=1 -DMAX_NUM_READS_LIST=4;8;16" DEBUG=1 sh install.sh scripts/install-environments/summitgpu-env.sh 
+
+Run:
+
 cd $MEMBERWORK/bif115/
+bin=/ccs/home/isratnisa/meta/diBella_bsp_GPU/build-dbg/kmermatch-16-32
 
-bin=diBELLA-install-f70f24e-dbg/bin/main-16-32
-
-jsrun --smpiargs=-gpu -n1 -c42 -g6 -a2 $bin -k 17 -u 8 -c 1 -i ~/meta/dibella_bsp/list_ecoliSample30x.txt -s kmermatch-17
+jsrun --smpiargs=-gpu -n1 -c42 -g6 -a6 $bin -k 17 -t 1 -u 8 -c 1 -i ~/meta/dibella_bsp/list_ecoliSample30x.txt -s kmermatch-17

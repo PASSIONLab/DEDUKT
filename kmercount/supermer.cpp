@@ -221,8 +221,8 @@ void parse_supermer_N_build_kmercounter(uint64_t* recvbuf, unsigned char* len_sm
 	// CHECK_MPI( MPI_Reduce(&nkmers_thisBatch, &allrank_kmersthisbatch, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
 	CHECK_MPI( MPI_Reduce(&nkmers_sofar, &allrank_kmersprocessed, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
 
-	std::cout << "rank: " << myrank << ", Smer - CPU HTsize: " << HTsize 
-		<< " #kmers from HT: " << totalPairs << ", ideal #kmers: " << allrank_kmersprocessed << std::endl;
+	// std::cout << "rank: " << myrank << ", Smer - CPU HTsize: " << HTsize 
+	// 	<< " #kmers from HT: " << totalPairs << ", ideal #kmers: " << allrank_kmersprocessed << std::endl;
 
 	if(myrank == 0)
 		std::cout << "Smer - CPU HTsize: " << allrank_hashsize 
@@ -406,16 +406,16 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset, uint
 		}
 	}
 
-	uint64_t totkmer = 0, nHTsize= 0;
+	// uint64_t totkmer = 0, nHTsize= 0;
 
-	int totssmer = 0;
-	for (int i = 0; i < nprocs; ++i)
-		totssmer += sendcnt[i];
+	// int totssmer = 0;
+	// for (int i = 0; i < nprocs; ++i)
+	// 	totssmer += sendcnt[i];
 
-	cout << "CPU totsmer: " <<  totssmer << ", smer distribution: avg: " << totssmer/nprocs << "; ";
-	for (int p = 0; p < nprocs; ++p)
-		cout << p << ": " << sendcnt[p] << ", ";
-	cout << endl;
+	// cout << myrank << " CPU totsmer: " <<  totssmer << ", smer distribution: avg: " << totssmer/nprocs << "; ";
+	// for (int p = 0; p < nprocs; ++p)
+	// 	cout << p << ": " << sendcnt[p] << ", ";
+	// cout << endl;
 
 	return nreads;
 }
@@ -460,10 +460,10 @@ size_t supermer_kmerCounter(vector<string> seqs, size_t offset, size_t endoffset
 	for (int i = 0; i < nprocs; ++i)
 		totssmer += sendcnt[i];
 
-	cout << "CPU totsmer: " <<  totssmer << ", smer distribution: avg: " << totssmer/nprocs << "; ";
-	for (int p = 0; p < nprocs; ++p)
-		cout << p << ": " << sendcnt[p] << ", ";
-	cout << endl;
+	// cout << "CPU totsmer: " <<  totssmer << ", smer distribution: avg: " << totssmer/nprocs << "; ";
+	// for (int p = 0; p < nprocs; ++p)
+	// 	cout << p << ": " << sendcnt[p] << ", ";
+	// cout << endl;
 
 	unsigned char *recv_slen = (unsigned char*) malloc(n_kmers * 2 * sizeof(unsigned char)); 
 	uint64_t *recv_smers = (uint64_t*) malloc(n_kmers * 2 * sizeof(uint64_t)); 
