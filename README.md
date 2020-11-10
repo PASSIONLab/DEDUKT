@@ -10,11 +10,11 @@ A distributed-memory parallel *K*-mer counter with NVIDIA GPU support.
 
 From the source directory run (the following example is for summit):
 ```
-  $  sh install.sh scripts/install-environments/summitgpu-env.sh
+$  sh install.sh scripts/install-environments/summitgpu-env.sh
 ```
 To build the Debug version run:
 ```
-  $  DEBUG=1 sh install.sh scripts/install-environments/summitgpu-env.sh
+$  DEBUG=1 sh install.sh scripts/install-environments/summitgpu-env.sh
 ```
 Some variables you may want to redefine are:
 BUILD_DIR     :    the path to your desired build directory
