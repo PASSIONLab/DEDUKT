@@ -6,11 +6,19 @@
 #include <iostream>
 #include <vector>
 #include <string>
-#include "Friends.h"
+#include <cmath>
+#include <unordered_map>
+#include <algorithm>
+// #include "Friends.h"
+// #include "FriendsMPI.h"
+// #include "MPIType.h"
+#include "common.h"
+// #include "../common/MPIUtils.h"
 #include "common_gpu.h"
 using namespace std;
 
 typedef unsigned long long int keyType;
+
 
 uint64_t murmur3_64 (uint64_t k);
 int murmur3_32 (int k);
@@ -22,9 +30,10 @@ size_t supermer_kmerCounter (vector < string > seqs, size_t offset,
 // 		       size_t endoffset, uint64_t * outgoing_csmers,
 // 		       unsigned char *outgoing_lensmers, int *sendcnt,
 // 		       int klen, int mlen);
-void getSupermers_GPU (char *seq, int klen, int mlen, int nproc,
-		       int *owner_counter, keyType * h_send_smers,
-		       unsigned char *h_send_slens, int n_kmers, int rank,
+
+void getSupermers_GPU (string seq, int klen, int mlen, int nproc,
+		       int *owner_counter, vector <keyType> &h_send_smers,
+		       vector <unsigned char> &h_send_slens, int n_kmers, int rank,
 		       int BUFF_LEN);
 void kcounter_supermer_GPU (KeyValue * pHashTable, keyType * d_smers,
 			    unsigned char *d_slen, uint32_t num_keys,

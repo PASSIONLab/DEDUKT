@@ -1,21 +1,14 @@
-
-#include "Kmer.hpp"
-#include "supermer.h"
 #include <cstdint>
 #include <stdint.h>
 #include <limits>
 #include <iostream>
-
-// #include "KmerIterator.hpp"
-// #include "Deleter.h"
-#include "ParallelFASTQ.h"
+#include "Kmer.hpp"
 #include "Friends.h"
 #include "MPIType.h"
 #include "SimpleCount.h"
 #include "FriendsMPI.h"
 #include "Pack.h"
-// #include "../common/Buffer.h"
-// #include "../common/hash_funcs.h"
+#include "supermer.h"
 
 using namespace std;
 

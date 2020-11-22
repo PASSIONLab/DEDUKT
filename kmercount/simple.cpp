@@ -1,6 +1,6 @@
 
 #include <iostream>
-#include "simple.h"
+//#include "simple.h"
 // #include <cuda.h>
 
 // __global__ void add(int a, int b, int *c)

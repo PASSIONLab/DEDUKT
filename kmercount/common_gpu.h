@@ -1,9 +1,12 @@
-// #define keyType uint32_t
-
 #ifndef COMMON_GPU_H
 #define COMMON_GPU_H
+
 #include <cuda_runtime_api.h>
 #include <cuda.h>
+#include <iostream>
+// #include "Kmer.hpp"
+
+using namespace std;
 
 typedef unsigned long long int uint64_cu; 
 typedef unsigned long long int keyType; 
@@ -13,6 +16,8 @@ struct KeyValue
     keyType key;
     uint32_t value;
 };
+
+// KeyValue* pHashTable;
 
 const keyType kEmpty = 0;
 
@@ -34,7 +39,7 @@ inline void cuda_timer_start(cudaEvent_t start){
     cudaEventRecord(start);
 }
 inline void cuda_timer_stop(cudaEvent_t start, cudaEvent_t stop, float &mili){
-       cudaEventRecord(stop);
+    cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&mili, start, stop);
     cudaDeviceSynchronize();

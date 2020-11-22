@@ -155,8 +155,8 @@ __global__ void cuda_build_supermer(char *seq, char *kmers, int klen, int mlen, 
 	}         
 }
 
-void getSupermers_GPU(char* seq, int klen, int mlen, int nproc, int *owner_counter, 
-		keyType* h_send_smers, unsigned char* h_send_slens, int n_kmers, int rank, int BUFF_SCALE )
+void getSupermers_GPU(string seq, int klen, int mlen, int nproc, int *owner_counter, 
+		vector<keyType>& h_send_smers, vector<unsigned char>& h_send_slens, int n_kmers, int rank, int BUFF_SCALE )
 {
 
 	int count, devId;
@@ -171,7 +171,7 @@ void getSupermers_GPU(char* seq, int klen, int mlen, int nproc, int *owner_count
 	cudaSetDevice(gpuID);
 	cudaGetDevice(&devId);
 
-	unsigned int seq_len = strlen(seq);
+	unsigned int seq_len = seq.length();
 	if(seq_len < klen) return;// h_outgoing;
 
 	//* Create events for GPU timing */
@@ -188,7 +188,7 @@ void getSupermers_GPU(char* seq, int klen, int mlen, int nproc, int *owner_count
 	checkCuda (cudaMalloc(&d_seq, seq_len * sizeof(char)), __LINE__);
 	checkCuda (cudaMalloc(&d_owner_counter, nproc * sizeof(int)), __LINE__);
 	// CUDA memcopies
-	checkCuda (cudaMemcpy(d_seq, seq, seq_len * sizeof(char) , cudaMemcpyHostToDevice), __LINE__);
+	checkCuda (cudaMemcpy(d_seq, &seq[0], seq_len * sizeof(char) , cudaMemcpyHostToDevice), __LINE__);
 	cudaMemset(d_supermers,  0, n_kmers * BUFF_SCALE * sizeof(keyType));
 	cudaMemset(d_owner_counter,  0, sizeof(int) * nproc);
 
@@ -204,8 +204,8 @@ void getSupermers_GPU(char* seq, int klen, int mlen, int nproc, int *owner_count
 	cuda_build_supermer<<<g, b>>>(d_seq, d_kmers, klen, mlen, seq_len, d_supermers, d_slen, d_owner_counter, nproc, p_buff_len, per_block_seq_len, window, rank);
 
 	//* Memcopy to CPU */
-	checkCuda (cudaMemcpy(h_send_smers, d_supermers, n_kmers * BUFF_SCALE * sizeof(keyType), cudaMemcpyDeviceToHost), __LINE__); 
-	checkCuda (cudaMemcpy(h_send_slens, d_slen, n_kmers * BUFF_SCALE * sizeof(unsigned char), cudaMemcpyDeviceToHost), __LINE__); 
+	checkCuda (cudaMemcpy(h_send_smers.data(), d_supermers, n_kmers * BUFF_SCALE * sizeof(keyType), cudaMemcpyDeviceToHost), __LINE__); 
+	checkCuda (cudaMemcpy(h_send_slens.data(), d_slen, n_kmers * BUFF_SCALE * sizeof(unsigned char), cudaMemcpyDeviceToHost), __LINE__); 
 	checkCuda (cudaMemcpy(owner_counter, d_owner_counter, nproc * sizeof(int) , cudaMemcpyDeviceToHost), __LINE__); 
 
 	// size_t total_counter = 0;
@@ -237,6 +237,7 @@ __global__ void cu_kcounter_smer(KeyValue* hashtable, const keyType* kvs, const 
 		unsigned char c = slens[threadid];
 		int slen = (int)c;
 
+		//*kmers of the supermer*
 		for(int k = 0; k < (slen - klen + 1); ++k){
 			
             keyType new_key = ((new_smer) >> (2*(31-(klen+k -1)))) & mask;//kvs[threadid];//.key;
