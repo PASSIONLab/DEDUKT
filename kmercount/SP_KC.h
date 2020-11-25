@@ -1,6 +1,6 @@
 
-#ifndef SUPERMER_H
-#define SUPERMER_H
+#ifndef SP_KC_H
+#define SP_KC_H
 
 #include <stdio.h>
 #include <iostream>
@@ -24,19 +24,18 @@ uint64_t murmur3_64 (uint64_t k);
 int murmur3_32 (int k);
 uint64_t find_minimizer (uint64_t kmer, int mlen);
 
-size_t supermer_kmerCounter (vector < string > seqs, size_t offset,
-			     size_t endoffset, int klen, int mlen);
-// size_t build_supermer (vector < string > seqs, size_t offset,
-// 		       size_t endoffset, uint64_t * outgoing_csmers,
-// 		       unsigned char *outgoing_lensmers, int *sendcnt,
-// 		       int klen, int mlen);
+size_t SP_KC(vector<string> seqs, size_t offset, size_t endoffset, 
+			int klen, int mlen);
 
 void getSupermers_GPU (string seq, int klen, int mlen, int nproc,
 		       int *owner_counter, vector <keyType> &h_send_smers,
 		       vector <unsigned char> &h_send_slens, int n_kmers, int rank,
 		       int BUFF_LEN);
-void kcounter_supermer_GPU (KeyValue * pHashTable, keyType * d_smers,
-			    unsigned char *d_slen, uint32_t num_keys,
-			    int klen, int rank);
+void GPU_SP_buildCounter(KeyValue* pHashTable, vector<keyType> &recvbuf, vector<unsigned char> &recvbuf_len,
+		int * recvcnt, uint32_t num_keys, int klen, int rank, int p_buff_len);
+double Exchange_GPUsupermers(vector<keyType> &outgoing, vector<unsigned char> &len_smers, 
+	vector<keyType> &recvbuf, vector<unsigned char> &recvbuf_len,
+	int *sendcnt, int *recvcnt, int nkmers,  int * owner_counter);
+
 
 #endif

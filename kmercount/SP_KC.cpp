@@ -8,7 +8,7 @@
 #include "SimpleCount.h"
 #include "FriendsMPI.h"
 #include "Pack.h"
-#include "supermer.h"
+#include "SP_KC.h"
 
 using namespace std;
 
@@ -229,8 +229,7 @@ uint64_t* Exchange_supermers(uint64_t* outgoing, unsigned char* len_smers,
 		uint64_t* recvbuf, unsigned char* recvbuf_len, int *sendcnt, int *recvcnt, int n_kmers){
 
 	double tot_exch_time = MPI_Wtime();
-	double performance_report_time = 0.0; 
-
+	
 	int * sdispls = new int[nprocs];
 	int * rdispls = new int[nprocs];
 
@@ -257,25 +256,8 @@ uint64_t* Exchange_supermers(uint64_t* outgoing, unsigned char* len_smers,
 	exch_time = MPI_Wtime() - exch_time;
 	tot_exch_time_smer += exch_time;
 
-	// cout << "Smer exch- totsend: " << totsend << ", exch (smers+len) time: " 
-	// << exch_time << ", total: " << tot_exch_time_smer << endl;
-	// CHECK_MPI( MPI_Alltoallv(d_outgoing, sendcnt, sdispls, MPI_LONG, d_recvbuf, recvcnt, rdispls, MPI_LONG, MPI_COMM_WORLD) );
-	// cout << "CPU alltoallv() + cudaMemcpy(future): " <<  MPI_Wtime() - exch_time1 << endl;
-	// cout << "GPU direct alltoallv(): " <<  MPI_Wtime() - exch_time1 << endl;
-
-	// /******* Performance reporting *******/
-	// performance_report_time = MPI_Wtime();
-
-	// double global_min_time = 0.0;
-	// CHECK_MPI( MPI_Reduce(&exch_time, &global_min_time, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD) );
-	// double global_max_time = 0.0;
-	// CHECK_MPI( MPI_Reduce(&exch_time, &global_max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD) );
-
-	// serial_printf("KmerMatch:%s exchange iteration %d pass %d: sent min %lld bytes, sent max %lld bytes, recv min %lld bytes, recv max %lld bytes, in min %.3f s, max %.3f s\n",
-	// 	__FUNCTION__, exchange_iter, pass, global_mins[SND], global_maxs[SND], global_mins[RCV], global_maxs[RCV], global_min_time, global_max_time);
-	// performance_report_time = MPI_Wtime()-performance_report_time;
-	/*************************************/
-
+	double performance_report_time = 0;//perf_reporting(exch_time, totsend, totrecv);
+	
 	delete(rdispls); delete(sdispls); 
 
 	tot_exch_time = MPI_Wtime() - tot_exch_time - performance_report_time;
@@ -413,7 +395,7 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset, uint
 	return nreads;
 }
 
-size_t supermer_kmerCounter(vector<string> seqs, size_t offset, size_t endoffset, int klen, int mlen)
+size_t SP_KC(vector<string> seqs, size_t offset, size_t endoffset, int klen, int mlen)
 {
 	KMER_LENGTH = klen;
 	Kmer::set_k(klen);

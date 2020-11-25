@@ -4,7 +4,7 @@
 #include "SimpleCount.h"
 #include "FriendsMPI.h"
 #include "Pack.h"
-#include "supermer.h"
+#include "SP_KC.h"
 
 __device__ keyType find_minimizer(keyType kmer, int klen, int mlen, keyType max64){
 
@@ -256,7 +256,8 @@ __global__ void cu_kcounter_smer(KeyValue* hashtable, const keyType* kvs, const 
 	}
 }
 
-void kcounter_supermer_GPU(KeyValue* pHashTable, keyType* d_smers, unsigned char* d_slen, uint32_t num_keys, int klen, int rank)
+void GPU_SP_buildCounter(KeyValue* pHashTable, vector<keyType> &recvbuf, vector<unsigned char> &recvbuf_len,
+		int * recvcnt, uint32_t totrecv, int klen, int rank, int p_buff_len)
 {
 	// Map MPI ranks to GPUs
 	int count, devId;
@@ -277,20 +278,110 @@ void kcounter_supermer_GPU(KeyValue* pHashTable, keyType* d_smers, unsigned char
 	int mingridsize;
 	int threadblocksize;
 	cudaOccupancyMaxPotentialBlockSize(&mingridsize, &threadblocksize, cu_kcounter_smer, 0, 0);
-
-	unsigned char * h_slens = (unsigned char *) malloc(num_keys * sizeof(unsigned char));
-	checkCuda (cudaMemcpy(h_slens, d_slen, num_keys * sizeof(unsigned char), cudaMemcpyDeviceToHost), __LINE__); 
+	unsigned char * d_slens;
+	keyType *d_smers;
+	// unsigned char * h_slens = (unsigned char *) malloc(num_keys * sizeof(unsigned char));
+	// checkCuda (cudaMemcpy(h_slens, d_slen, num_keys * sizeof(unsigned char), cudaMemcpyDeviceToHost), __LINE__); 
 	
+	checkCuda( cudaMalloc(&d_smers, sizeof(keyType) * totrecv), __LINE__); 
+	checkCuda( cudaMalloc(&d_slens, sizeof(unsigned char) * totrecv), __LINE__);
+	
+	size_t num_keys = 0;
+
+	for(uint64_t i= 0; i < nprocs ; ++i) {
+		if(totrecv > 0) {
+			checkCuda( cudaMemcpy(d_smers + num_keys, &recvbuf[i * p_buff_len], sizeof(keyType) * recvcnt[i], cudaMemcpyHostToDevice), __LINE__); 
+			checkCuda( cudaMemcpy(d_slens + num_keys, &recvbuf_len[i * p_buff_len], sizeof(unsigned char) * recvcnt[i], cudaMemcpyHostToDevice), __LINE__); 
+		}
+		num_keys += recvcnt[i];	
+	}
+
 	int gridsize = ((uint32_t)num_keys + threadblocksize - 1) / threadblocksize;
-	cu_kcounter_smer<<<gridsize, threadblocksize>>>(pHashTable, d_smers, d_slen, (uint32_t)num_keys, klen, mask);
+	cu_kcounter_smer<<<gridsize, threadblocksize>>>(pHashTable, d_smers, d_slens, (uint32_t)num_keys, klen, mask);
 
 	cudaEventRecord(stop);
 	cudaEventSynchronize(stop);
 	cudaFree(d_smers);
-	cudaFree(d_slen);
+	cudaFree(d_slens);
 	return ;//h_pHashTable;
 
 }
 
+double tot_GPUsmer_alltoallv = 0;
+
+double Exchange_GPUsupermers(vector<keyType> &outgoing, vector<unsigned char> &len_smers, 
+	vector<keyType> &recvbuf, vector<unsigned char> &recvbuf_len,
+	int *sendcnt, int *recvcnt, int nkmers,  int * owner_counter)
+{
+	double tot_exch_time = MPI_Wtime();
+
+	// int * sendcnt = new int[nprocs];
+	int * sdispls = new int[nprocs];
+	int * rdispls = new int[nprocs];
+	// int * recvcnt = new int[nprocs];
+
+	uint64_t totsend = 0, totrecv = 0;
+	for (int i=0; i < nprocs; i++) {
+		sendcnt[i] = owner_counter[i];
+		totsend += sendcnt[i];
+	}
+	free(owner_counter);
+
+	CHECK_MPI( MPI_Alltoall(sendcnt, 1, MPI_INT, recvcnt, 1, MPI_INT, MPI_COMM_WORLD) );  // share the request counts
+
+	// cout << "recv count " ;
+	for (int i=0; i < nprocs; i++) {
+		totrecv += recvcnt[i];
+		// cout << recvcnt[i] << " "; 
+	}
+	// cout << endl;
+
+	// int64_t totsend = accumulate(sendcnt, sendcnt+nprocs, static_cast<int64_t>(0));
+	// if (totsend < 0) { cerr << myrank << " detected overflow in totsend calculation, line" << __LINE__ << endl; }
+	// int64_t totrecv = accumulate(recvcnt, recvcnt+nprocs, static_cast<int64_t>(0));
+	// if (totrecv < 0) { cerr << myrank << " detected overflow in totrecv calculation, line" << __LINE__ << endl; }
+	// DBG("totsend=%lld totrecv=%lld\n", (lld) totsend, (lld) totrecv);
+
+	int p_buff_len = ((nkmers * BUFF_SCALE) + nprocs - 1)/nprocs;
+
+	for (int i=0; i < nprocs; i++) {
+		sdispls[i] = i * p_buff_len;
+		rdispls[i] = i * p_buff_len;
+	}
+
+	// uint64_t* recvbuf = (uint64_t*) malloc(nkmers * BUFF_SCALE * sizeof(uint64_t)); 
+	// unsigned char* recvbuf_len = (unsigned char*) malloc(nkmers * BUFF_SCALE * sizeof(unsigned char)); 
+
+	double exch_time = MPI_Wtime();
+	for (int i = 0; i < COMM_ITER; ++i)
+	{
+		CHECK_MPI( MPI_Alltoallv(&(outgoing[0]), sendcnt, sdispls, MPI_UINT64_T, &(recvbuf[0]), recvcnt, rdispls, MPI_UINT64_T, MPI_COMM_WORLD) );
+		CHECK_MPI( MPI_Alltoallv(&(len_smers[0]), sendcnt, sdispls, MPI_UNSIGNED_CHAR, &(recvbuf_len[0]), recvcnt, rdispls, MPI_UNSIGNED_CHAR, MPI_COMM_WORLD) );
+	}
+	exch_time = (MPI_Wtime() - exch_time)/COMM_ITER;
+	tot_GPUsmer_alltoallv += exch_time;
+
+	double performance_report_time = 0;//perf_reporting(exch_time, totsend, totrecv);
+
+	// checkCuda( cudaMalloc(&d_recv_smers, sizeof(keyType) * totrecv), __LINE__); 
+	// checkCuda( cudaMalloc(&d_recv_slens, sizeof(unsigned char) * totrecv), __LINE__);
+	// size_t num_keys = 0;
+
+	// for(uint64_t i= 0; i < nprocs ; ++i) {
+	// 	if(totrecv > 0) {
+	// 		checkCuda( cudaMemcpy(d_recv_smers + num_keys, &recvbuf[i * p_buff_len], sizeof(keyType) * recvcnt[i], cudaMemcpyHostToDevice), __LINE__); 
+	// 		checkCuda( cudaMemcpy(d_recv_slens + num_keys, &recvbuf_len[i * p_buff_len], sizeof(unsigned char) * recvcnt[i], cudaMemcpyHostToDevice), __LINE__); 
+	// 	}
+	// 	num_keys += recvcnt[i];	
+	// }
+
+	// if(totsend > 0)  {free(outgoing); free(len_smers);}
+	// if(totrecv > 0)  {free(recvbuf); free(recvbuf_len);}
+
+	delete(rdispls); delete(sdispls); 
+	tot_exch_time=MPI_Wtime()-tot_exch_time; //-performance_report_time;
+
+	return tot_exch_time;
+}
 
 

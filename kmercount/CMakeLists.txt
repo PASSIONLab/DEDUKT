@@ -108,8 +108,8 @@ object			SOURCES				readufx.cpp
 			TYPE				OBJECT
 			TARGET_NAME			${NAME}
 			OUTPUT_NAME			${NAME}
-			SOURCES				kmermatch.cu supermer.cpp supermer.cu kmercounter_GPU.cu KC_GPU.cu 
-			HEADERS				common.h supermer.h common_gpu.h KC_GPU.h
+			SOURCES				kmermatch.cu SP_KC.cpp SP_KC_GPU.cu KC_GPU.cu 
+			HEADERS				common.h SP_KC.h common_gpu.h KC_GPU.h
 			DEFINITIONS			${KMER_DEFS}
 			LINK_LIBRARIES		${ZLIB_LIBRARIES}
 			CXXFLAGS			${MPI_CXX_COMPILE_FLAGS}
@@ -132,21 +132,21 @@ object			SOURCES				readufx.cpp
 		)
 		add_readid_defs(${NAME})
 
-#kmermatch_objs for unified exec        
-		set(NAME kmermatch_objs-${MAX_NUM_READS}-${HIPMER_KMER_LEN})
-		create_library(
-			TYPE 				OBJECT
-			TARGET_NAME			${NAME}
-			OUTPUT_NAME			${NAME}
-			SOURCES				kmermatch.cu supermer.cpp supermer.cu kmercounter_GPU.cu 
-			HEADERS				common.h supermer.h common_gpu.h
-			DEFINITIONS			${KMER_DEFS} SINGLE_EXEC=1
-			CXXFLAGS			${MPI_CXX_COMPILE_FLAGS} ${CMAKE_LINK_FLAGS} ${MPI_CXX_LINK_FLAGS}
-#			OBJECT_LIBRARIES	common fqreader ReadOverlap-${MAX_NUM_READS}-${HIPMER_KMER_LEN} LIBBLOOM-NOUPC MPIType KmerObjects-${HIPMER_KMER_LEN} kmermatch-${MAX_NUM_READS}-${HIPMER_KMER_LEN}-NOUPC
-			LINK_LIBRARIES		${MPI_CXX_LIBRARIES} ${ZLIB_LIBRARIES} ${RT_LIBRARIES} ${libc} gpu_kmer
-			CUDAFLAGS	        -ccbin=${CMAKE_CXX_COMPILER} -Xcompiler -fopenmp -arch=sm_70 -maxrregcount=32 #TODO some of these flags shouldn't be hard coded here
- 			PROPERTIES          COMPILE_LANGUAGE CUDA ${CUDA_PROPERTIES} ) 
-		add_readid_defs(${NAME})
+# #kmermatch_objs for unified exec        
+# 		set(NAME kmermatch_objs-${MAX_NUM_READS}-${HIPMER_KMER_LEN})
+# 		create_library(
+# 			TYPE 				OBJECT
+# 			TARGET_NAME			${NAME}
+# 			OUTPUT_NAME			${NAME}
+# 			SOURCES				kmermatch.cu SP_KC.cpp supermer.cu 
+# 			HEADERS				common.h supermer.h common_gpu.h
+# 			DEFINITIONS			${KMER_DEFS} SINGLE_EXEC=1
+# 			CXXFLAGS			${MPI_CXX_COMPILE_FLAGS} ${CMAKE_LINK_FLAGS} ${MPI_CXX_LINK_FLAGS}
+# #			OBJECT_LIBRARIES	common fqreader ReadOverlap-${MAX_NUM_READS}-${HIPMER_KMER_LEN} LIBBLOOM-NOUPC MPIType KmerObjects-${HIPMER_KMER_LEN} kmermatch-${MAX_NUM_READS}-${HIPMER_KMER_LEN}-NOUPC
+# 			LINK_LIBRARIES		${MPI_CXX_LIBRARIES} ${ZLIB_LIBRARIES} ${RT_LIBRARIES} ${libc} gpu_kmer
+# 			CUDAFLAGS	        -ccbin=${CMAKE_CXX_COMPILER} -Xcompiler -fopenmp -arch=sm_70 -maxrregcount=32 #TODO some of these flags shouldn't be hard coded here
+#  			PROPERTIES          COMPILE_LANGUAGE CUDA ${CUDA_PROPERTIES} ) 
+# 		add_readid_defs(${NAME})
 	
 	ENDFOREACH() # HIPMER_KMER_LENGTHS
 ENDFOREACH() # MAX_NUM_READS
