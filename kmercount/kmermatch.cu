@@ -72,7 +72,7 @@ extern "C" {
 //#define DEBUG 1
 #include "Kmer.hpp"
 // #include "simple.cuh"
-#include "linearprobing.h"
+#include "KC_GPU.h"
 #include "supermer.h"
 #include "KmerIterator.hpp"
 #include "Deleter.h"
@@ -399,6 +399,8 @@ keyType tmp_MurmurHash3_x64_128(const void* key, const uint32_t len, const uint3
 int nkmers_thisBatch = 0;
 int nkmers_processed = 0;
 
+
+
 size_t ParseNPack(vector<string> & seqs, vector<string> names, vector<string> & quals, vector< vector<Kmer> > & outgoing, vector< vector<ReadId> > & readids,
 		vector< vector<PosInRead> > & positions, ReadId & startReadIndex, vector<vector<array<char,2>>> & extquals, vector<vector<array<char,2>>> & extseqs,
 		std::unordered_map<ReadId, std::string>& readNameMap, int pass, size_t offset)
@@ -465,6 +467,63 @@ size_t ParseNPack(vector<string> & seqs, vector<string> names, vector<string> & 
 }
 
 
+size_t KC_GPU(vector<string> & seqs, int pass, size_t offset, size_t endoffset, int nproc, struct bloom * bm)
+{
+	size_t nreads = endoffset;// seqs.size();
+	size_t nskipped = 0, maxsending = 0, nkmerDelim_thisBatch = 0;
+	size_t memoryThreshold = (MAX_ALLTOALL_MEM / nprocs) * 2; // 2x any single rank
+	size_t nRecvdKmers = 0;
+	std::string all_seqs;
+	vector<keyType> kmers_GPU;
+	vector<int> owner_counter (nprocs, 0);
+	keyType *d_kmers;
+
+	nkmers_thisBatch = 0;
+
+	//*concat all reads before copying to GPU*
+	for(size_t i=offset; i < nreads; ++i){	
+		
+		if (seqs[i].length() <= KMER_LENGTH) continue;
+
+		nkmers_thisBatch += seqs[i].length() - KMER_LENGTH + 1;
+		int approx_maxsending = (4 * nkmers_thisBatch + nprocs - 1)/nprocs;
+		all_seqs += seqs[i] + "a";
+
+		// if (approx_maxsending * bytesperentry >= memoryThreshold || (nkmers_thisBatch + seqs[i].length()) * bytesperentry >= MAX_ALLTOALL_MEM) { 
+		// 	nreads = i+1; // start with next read
+		// 	break;
+		// }
+	}
+
+	if(all_seqs.length() == 0) return nreads;
+
+	nkmerDelim_thisBatch = all_seqs.length() - KMER_LENGTH + 1;
+	nkmers_processed += nkmers_thisBatch;
+
+	//* Parse reads and pack to outgoing buffer on GPU *
+	vector <uint64_t> h_outgoing(nkmerDelim_thisBatch * BUFF_SCALE);
+	getKmers_GPU(all_seqs, h_outgoing, KMER_LENGTH, nprocs, owner_counter, myrank, BUFF_SCALE);
+	// getKmers_test(all_seqs);
+	
+	//* Exchange kmers * TODO:: GPU direct communication *
+	vector <keyType> recvbuf(nkmerDelim_thisBatch * BUFF_SCALE); 
+	int * recvcnt = new int[nprocs];
+
+	double exch_t_GPU = GPU_Exchange(recvbuf, h_outgoing, pass, nprocs, 
+	nkmerDelim_thisBatch, owner_counter, nRecvdKmers, recvcnt); // outgoing arrays will be all empty, shouldn't crush
+	tot_exch_GPU += exch_t_GPU;
+
+	//* Build local kmer counter *
+	int p_buff_len = ((nkmerDelim_thisBatch * BUFF_SCALE) + nprocs - 1)/nprocs;
+
+	double process_t_GPU = GPU_buildCounter(d_hashTable, recvbuf, pass, bm, nRecvdKmers, recvcnt, p_buff_len);   // we might still receive data even if we didn't send any
+	tot_process_GPU += process_t_GPU;
+	delete[] recvcnt;
+	if(nRecvdKmers > 0)  recvbuf.clear();
+	return nreads;
+}
+
+
 keyType *d_recv_smers = NULL;
 unsigned char *d_recv_slens = NULL;
 double Exchange_GPUsupermers(vector<keyType>& outgoing, vector<unsigned char> &len_smers, int *sendcnt, int *recvcnt, int n_kmers);
@@ -503,156 +562,6 @@ double perf_reporting(double exch_time, size_t totsend, size_t totrecv)
 	performance_report_time = MPI_Wtime()-performance_report_time;
 
 	return performance_report_time;
-}
-
-double tot_alltoallv_GPU = 0;
-
-double GPU_Exchange(vector <keyType> &recvbuf, vector <uint64_t> &h_outgoing, int pass, int nproc, int n_kmers, 
-	std::vector<int> & owner_counter, size_t &nRecvdKmers, int * recvcnt)
-{
-	double tot_exch_time = MPI_Wtime();
-	int p_buff_len = ((n_kmers * BUFF_SCALE) + nprocs - 1)/nprocs;
-
-	int * sendcnt = new int[nprocs];
-	int * sdispls = new int[nprocs];
-	int * rdispls = new int[nprocs];
-	// int * recvcnt = new int[nprocs];
-
-	for (int i=0; i < nprocs; i++) {
-		// outgoing[i].clear(); // CPU parseNPack is populating this..remove when that call is removed
-		sendcnt[i] = owner_counter[i];
-	}
-
-	CHECK_MPI( MPI_Alltoall(sendcnt, 1, MPI_INT, recvcnt, 1, MPI_INT, MPI_COMM_WORLD) );  // share the request counts
-
-	int64_t totsend = accumulate(sendcnt, sendcnt+nprocs, static_cast<int64_t>(0));
-	if (totsend < 0) { cerr << myrank << " detected overflow in totsend calculation, line" << __LINE__ << endl; }
-	int64_t totrecv = accumulate(recvcnt, recvcnt+nprocs, static_cast<int64_t>(0));
-	if (totrecv < 0) { cerr << myrank << " detected overflow in totrecv calculation, line" << __LINE__ << endl; }
-	DBG("totsend=%lld totrecv=%lld\n", (lld) totsend, (lld) totrecv);
-	
-	for (int i=0; i < nprocs; i++) {
-		sdispls[i] = i * p_buff_len;
-		rdispls[i] = i * p_buff_len;
-	}
-
-	double exch_time = MPI_Wtime(); //so weird
-	
-	for (int i = 0; i < COMM_ITER; ++i)
-		CHECK_MPI( MPI_Alltoallv(&h_outgoing[0], sendcnt, sdispls, MPI_UINT64_T, &recvbuf[0], recvcnt, rdispls, MPI_UINT64_T, MPI_COMM_WORLD) );	
-	
-	exch_time = (MPI_Wtime()-exch_time) /COMM_ITER;
-	tot_alltoallv_GPU += exch_time;
-
-	double performance_report_time = 0;//perf_reporting(exch_time, totsend, totrecv);
-	
-	nRecvdKmers = totrecv;
-
-	if(totsend > 0)  h_outgoing.clear();
-	// if(totrecv > 0)  recvbuf.clear();
-
-	delete[] rdispls; delete[] sdispls; delete[] sendcnt;
-	tot_exch_time = MPI_Wtime() - tot_exch_time - performance_report_time;
-	
-	return tot_exch_time;
-}
-
-double GPU_buildCounter(KeyValue *d_hashTable,  vector <keyType>& recvbuf, int pass, 
-	struct bloom * bm, int totrcv, int *recvcnt, int p_buff_len){
-
-	double t_count = MPI_Wtime();
-	
-	// insert_hashtable_cpu(mykmers_GPU.data(), (uint32_t)mykmers_GPU.size());
-	// size_t num_keys = nkmers_gpu;
-	insert_hashtable(d_hashTable, recvbuf, totrcv, myrank, nprocs, recvcnt, p_buff_len);
-
-	double t_count1 = MPI_Wtime() - t_count;
-
-	// correctness check
-	std::vector<KeyValue> h_pHashTable(kHashTableCapacity);
-	// h_pHashTable.resize(kHashTableCapacity);
-	cudaMemcpy(h_pHashTable.data(), d_hashTable, sizeof(KeyValue) * kHashTableCapacity, cudaMemcpyDeviceToHost); 
-
-	uint64_t HTsize = 0, totalPairs= 0;  
-	for (int i = 0; i < kHashTableCapacity; ++i)
-	{
-		// if (hosthash[i].value > 1 && hosthash[i].value < 8) { //kEmpty 
-		if (h_pHashTable[i].value > 0) { //kEmpty  		
-			HTsize++;
-			totalPairs += h_pHashTable[i].value;
-		}
-	}
-
-	size_t allrank_hashsize = 0, allrank_totalPairs = 0;
-	CHECK_MPI( MPI_Reduce(&HTsize, &allrank_hashsize,  1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
-	CHECK_MPI( MPI_Reduce(&totalPairs, &allrank_totalPairs, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
-
-	size_t allrank_kmersthisbatch = 0;
-	size_t allrank_kmersprocessed = 0;
-	CHECK_MPI( MPI_Reduce(&nkmers_thisBatch, &allrank_kmersthisbatch, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
-	CHECK_MPI( MPI_Reduce(&nkmers_processed, &allrank_kmersprocessed, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
-	// cout << myrank << " local GPU HT size " << HTsize << " pair " << totalPairs << endl;
-	if(myrank == 0){
-		cout << "\nBatch: " << batch <<" - GPU HTsize: " 
-			<< allrank_hashsize << ", #kmers from GPU_HT: " << allrank_totalPairs 
-			<< " ideal #kmers " << allrank_kmersprocessed << endl;
-	}
-	return t_count1;
-}
-size_t KC_GPU(vector<string> & seqs, int pass, size_t offset, size_t endoffset, int nproc, struct bloom * bm)
-{
-	size_t nreads = endoffset;// seqs.size();
-	size_t nskipped = 0, maxsending = 0, nkmerDelim_thisBatch = 0;
-	size_t memoryThreshold = (MAX_ALLTOALL_MEM / nprocs) * 2; // 2x any single rank
-	size_t nRecvdKmers = 0;
-	std::string all_seqs;
-	vector<keyType> kmers_GPU;
-	vector<int> owner_counter (nprocs, 0);
-	keyType *d_kmers;
-
-	nkmers_thisBatch = 0;
-
-	//*concat all reads before copying to GPU*
-	for(size_t i=offset; i < nreads; ++i){	
-		
-		if (seqs[i].length() <= KMER_LENGTH) continue;
-
-		nkmers_thisBatch += seqs[i].length() - KMER_LENGTH + 1;
-		int approx_maxsending = (4 * nkmers_thisBatch + nprocs - 1)/nprocs;
-		all_seqs += seqs[i] + "a";
-
-		// if (approx_maxsending * bytesperentry >= memoryThreshold || (nkmers_thisBatch + seqs[i].length()) * bytesperentry >= MAX_ALLTOALL_MEM) { 
-		// 	nreads = i+1; // start with next read
-		// 	break;
-		// }
-	}
-
-	if(all_seqs.length() == 0) return nreads;
-
-	nkmerDelim_thisBatch = all_seqs.length() - KMER_LENGTH + 1;
-	nkmers_processed += nkmers_thisBatch;
-
-	//* Parse reads and pack to outgoing buffer on GPU*
-	vector <uint64_t> h_outgoing(nkmerDelim_thisBatch * BUFF_SCALE);
-	getKmers_GPU(all_seqs, h_outgoing, KMER_LENGTH, nprocs, owner_counter, myrank, BUFF_SCALE);
-	// getKmers_test(all_seqs);
-	
-	//* Exchange kmers * TODO:: GPU direct communication
-	vector <keyType> recvbuf(nkmerDelim_thisBatch * BUFF_SCALE); 
-	int * recvcnt = new int[nprocs];
-
-	double exch_t_GPU = GPU_Exchange(recvbuf, h_outgoing, pass, nprocs, 
-	nkmerDelim_thisBatch, owner_counter, nRecvdKmers, recvcnt); // outgoing arrays will be all empty, shouldn't crush
-	tot_exch_GPU += exch_t_GPU;
-
-	//* Build local kmer counter
-	int p_buff_len = ((nkmerDelim_thisBatch * BUFF_SCALE) + nprocs - 1)/nprocs;
-
-	double process_t_GPU = GPU_buildCounter(d_hashTable, recvbuf, pass, bm, nRecvdKmers, recvcnt, p_buff_len);   // we might still receive data even if we didn't send any
-	tot_process_GPU += process_t_GPU;
-	delete[] recvcnt;
-	if(nRecvdKmers > 0)  recvbuf.clear();
-	return nreads;
 }
 
 uint64_t nkmers_smer_batch = 0;
@@ -1657,12 +1566,6 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
 					KC_GPU(seqs, exchangeAndCountPass, tmp_offset, offset, nprocs, bm);    // no-op if seqs.size() == 0
 					double pack_t_GPU = MPI_Wtime() - exch_start_t_GPU;
 					tot_pack_GPU += pack_t_GPU;
-
-					// double exch_t_GPU = GPU_Exchange(kmers_GPU, exchangeAndCountPass, nprocs); // outgoing arrays will be all empty, shouldn't crush
-					// tot_exch_GPU += exch_t_GPU;
-
-					// double process_t_GPU = GPU_buildCounter(d_hashTable, kmers_GPU, exchangeAndCountPass, bm);   // we might still receive data even if we didn't send any
-					// tot_process_GPU += process_t_GPU;
 				}
 
 				else if(type == 2) // Supermer based kcounter on CPU

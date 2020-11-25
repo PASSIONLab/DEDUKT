@@ -108,8 +108,8 @@ object			SOURCES				readufx.cpp
 			TYPE				OBJECT
 			TARGET_NAME			${NAME}
 			OUTPUT_NAME			${NAME}
-			SOURCES				kmermatch.cu supermer.cpp supermer.cu kmercounter_GPU.cu linearprobing.cu 
-			HEADERS				common.h supermer.h common_gpu.h linearprobing.h
+			SOURCES				kmermatch.cu supermer.cpp supermer.cu kmercounter_GPU.cu KC_GPU.cu 
+			HEADERS				common.h supermer.h common_gpu.h KC_GPU.h
 			DEFINITIONS			${KMER_DEFS}
 			LINK_LIBRARIES		${ZLIB_LIBRARIES}
 			CXXFLAGS			${MPI_CXX_COMPILE_FLAGS}
