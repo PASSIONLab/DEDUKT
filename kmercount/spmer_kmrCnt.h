@@ -9,11 +9,7 @@
 #include <cmath>
 #include <unordered_map>
 #include <algorithm>
-// #include "Friends.h"
-// #include "FriendsMPI.h"
-// #include "MPIType.h"
 #include "common.h"
-// #include "../common/MPIUtils.h"
 #include "common_gpu.h"
 using namespace std;
 
@@ -24,7 +20,7 @@ uint64_t murmur3_64 (uint64_t k);
 int murmur3_32 (int k);
 uint64_t find_minimizer (uint64_t kmer, int mlen);
 
-size_t SP_KC(vector<string> seqs, size_t offset, size_t endoffset, 
+size_t spmer_kmerCount(vector<string> seqs, size_t offset, size_t endoffset, 
 			int klen, int mlen);
 
 void getSupermers_GPU (string seq, int klen, int mlen, int nproc,

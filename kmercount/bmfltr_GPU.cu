@@ -1,3 +1,6 @@
+// Hashtable is based on https://github.com/nosferalatu/SimpleGPUHashTable/blob/450895f27123ad45261eed784e659a0ef6c0645b/src/main.cpp
+
+
 #include "stdio.h"
 #include <iostream>
 #include <unordered_map>
@@ -5,7 +8,7 @@
 #include <functional>
 #include "stdint.h"
 #include "vector"
-#include "KC_GPU.h"
+#include "kmrCnt_GPU.h"
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 using namespace std;
@@ -178,6 +181,23 @@ __global__ void gpu_hashtable_insert(KeyValue* hashtable,
 // }
 
 // void insert_hashtable(KeyValue* pHashTable, const keyType* keys, uint32_t num_keys, int rank)
+
+
+std::vector<keyType> populate_GPUarray(vector<Kmer> & mykmers_GPU){
+
+	std::vector<keyType> kvs (mykmers_GPU.size());
+
+	for (uint32_t i = 0; i < mykmers_GPU.size(); i++)
+	{
+		Kmer kmer = mykmers_GPU[i];
+		keyType key = kmer.getArray().at(0);
+		// uint32_t val = 0;//get<2>(kmer.second); //dis(rnd);
+		kvs[i] = key;
+
+	}
+	return kvs;
+}
+
 
 void insert_hashtable(KeyValue* pHashTable, vector <keyType>& recvbuf, uint32_t nkmers, int rank, int nprocs, int *recvcnt, int p_buff_len)
 {
@@ -722,3 +742,37 @@ void destroy_hashtable(KeyValue* pHashTable, int rank)
 {
 	cudaFree(pHashTable);
 }
+
+// void insert_hashtable_cpu(keyType* mykmers_GPU, int nkeys){
+
+// 	for (uint32_t i = 0; i < nkeys; i++){
+// 		uint64_t longs =  mykmers_GPU[i];
+// 		auto found = kcounter_cpu.find(longs);// == kcounter_cpu.end() )
+// 		if(found != kcounter_cpu.end())
+// 			found->second += 1;
+// 		else 
+// 			kcounter_cpu.insert({longs,1});
+// 	}
+
+// 	uint64_t totalPairs = 0, HTsize= 0;
+// 	for ( auto it = kcounter_cpu.begin(); it!= kcounter_cpu.end(); ++it ){
+// 		if(it->second > 0){
+// 			HTsize++;
+// 			totalPairs += it->second;
+// 		}
+// 	}
+
+// 	size_t allrank_hashsize = 0, allrank_totalPairs = 0;
+// 	CHECK_MPI( MPI_Reduce(&HTsize, &allrank_hashsize,  1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
+// 	CHECK_MPI( MPI_Reduce(&totalPairs, &allrank_totalPairs, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
+
+// 	size_t allrank_kmersthisbatch = 0;
+// 	size_t allrank_kmersprocessed = 0;
+// 	// CHECK_MPI( MPI_Reduce(&nkmers_thisBatch, &allrank_kmersthisbatch, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
+// 	// CHECK_MPI( MPI_Reduce(&nkmers_sofar, &allrank_kmersprocessed, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD) );
+// 	if(myrank == 0)
+// 	{
+// 		cout << "\nBatch: " << batch 
+// 			<< allrank_hashsize << ", #kmers from CPU_HT: " << allrank_totalPairs << endl;
+// 	}
+// }

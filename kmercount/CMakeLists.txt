@@ -108,8 +108,8 @@ object			SOURCES				readufx.cpp
 			TYPE				OBJECT
 			TARGET_NAME			${NAME}
 			OUTPUT_NAME			${NAME}
-			SOURCES				kmermatch.cu SP_KC.cpp SP_KC_GPU.cu KC_GPU.cu 
-			HEADERS				common.h SP_KC.h common_gpu.h KC_GPU.h
+			SOURCES				kmermatch.cu spmer_kmrCnt.cpp spmer_kmrCnt_GPU.cu kmrCnt_GPU.cu 
+			HEADERS				common.h spmer_kmrCnt.h common_gpu.h kmrCnt_GPU.h
 			DEFINITIONS			${KMER_DEFS}
 			LINK_LIBRARIES		${ZLIB_LIBRARIES}
 			CXXFLAGS			${MPI_CXX_COMPILE_FLAGS}
@@ -138,7 +138,7 @@ object			SOURCES				readufx.cpp
 # 			TYPE 				OBJECT
 # 			TARGET_NAME			${NAME}
 # 			OUTPUT_NAME			${NAME}
-# 			SOURCES				kmermatch.cu SP_KC.cpp supermer.cu 
+# 			SOURCES				kmermatch.cu spmer_kmrCnt.cpp supermer.cu 
 # 			HEADERS				common.h supermer.h common_gpu.h
 # 			DEFINITIONS			${KMER_DEFS} SINGLE_EXEC=1
 # 			CXXFLAGS			${MPI_CXX_COMPILE_FLAGS} ${CMAKE_LINK_FLAGS} ${MPI_CXX_LINK_FLAGS}

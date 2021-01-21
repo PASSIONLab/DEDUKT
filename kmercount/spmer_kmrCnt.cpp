@@ -8,7 +8,7 @@
 #include "SimpleCount.h"
 #include "FriendsMPI.h"
 #include "Pack.h"
-#include "SP_KC.h"
+#include "spmer_kmrCnt.h"
 
 using namespace std;
 
@@ -395,7 +395,8 @@ size_t build_supermer(vector<string> seqs, size_t offset, size_t endoffset, uint
 	return nreads;
 }
 
-size_t SP_KC(vector<string> seqs, size_t offset, size_t endoffset, int klen, int mlen)
+
+size_t spmer_kmerCount(vector<string> seqs, size_t offset, size_t endoffset, int klen, int mlen)
 {
 	KMER_LENGTH = klen;
 	Kmer::set_k(klen);

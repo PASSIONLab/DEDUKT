@@ -4,7 +4,7 @@
 #include "SimpleCount.h"
 #include "FriendsMPI.h"
 #include "Pack.h"
-#include "SP_KC.h"
+#include "spmer_kmrCnt.h"
 
 __device__ keyType find_minimizer(keyType kmer, int klen, int mlen, keyType max64){
 
