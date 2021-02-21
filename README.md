@@ -40,18 +40,27 @@ $  DEFS="-DMAX_NUM_READS_LIST=8;16" sh install.sh
 
 ## Run in interarctive session
 
-Examples are based on summit cluster from ORNL.
+Examples are based on summit cluster from ORNL. To run on 64 nodes (6 GPUs each):  
 
+Example #1 (K-mer counter on GPU)  
 ```
-$ bin=../kmercounter/build-dbg/kmermatch-16-32 
-$ jsrun --smpiargs=-gpu -n64 -c42 -g6 -a6 $bin -k 17 -t 1 -u 8 -c 1 -i ${input} -s kmermatch-17 
+$ jsrun --smpiargs=-gpu -n64 -c42 -g6 -a6 build/kmermatch-16-32 -k 17 -t 1 -u 8 -c 1 -i ${input} 
 ```
-{input} is any text file containing a line-separated list of input fastq files.
-
--t defines the type of kmer counter: 0: kmer counter on CPU, 1: kmer counter on NVIDIA GPU, 2: supermer based kmer counter on CPU, 3: supermer based kmer counter on NVIDIA GPU
-
-
-Use the -h flag with a "kmermatch" binary to view the respective usage documentation.
+Example #2 (Supermer based K-mer counter on GPU)
+```
+$ jsrun --smpiargs=-gpu -n64 -c42 -g6 -a6 build/kmermatch-16-32 -k 17 -t 3 -n 9 -u 8 -c 1 -i ${input} 
+```
+```
+Options:
+-t: type of kmer counter:   
+    0: kmer counter on CPU  
+    1: kmer counter on NVIDIA GPU  
+    2: supermer based kmer counter on CPU  
+    3: supermer based kmer counter on NVIDIA GPU  
+-k: K-mer length
+-n: minimizer length
+```
+{input} is any text file containing a line-separated list of input fastq files. Use the -h flag with a "kmermatch" binary to view the respective usage documentation.
 For performance analysis, you may be further interested in setting the CMake flag, 
 BENCHMARKONLY=1. Read more under "Custom Build and Installation".
 Additionally, to customize particular feature settings, add them to the cmake command as "-D<feature name1> -D<feature name 2> " and so on,
