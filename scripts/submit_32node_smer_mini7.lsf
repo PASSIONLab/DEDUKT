@@ -1,0 +1,28 @@
+#!/bin/bash
+ # Begin LSF Directives
+ #BSUB -P BIF115
+ #BSUB -W 1:59
+ #BSUB -nnodes 32
+ #BSUB -alloc_flags gpumps
+ #BSUB -J node32
+ #BSUB -o node32.%J
+ #BSUB -e node32.%J
+
+ module swap xl gcc #/8.1.1
+ module load cuda
+
+cd $MEMBERWORK/bif115/
+
+output=node32_smerGPU_mini7_3iters.txt
+path=/ccs/home/isratnisa/meta/diBella_bsp_GPU
+genome=( list_ecoli30x.txt list_paeruginosa30x_0001.txt list_vvulnificus30x_0001.txt list_abaumannii30x_0001.txt list_celegans40x.txt )
+
+bin=/ccs/home/isratnisa/meta/diBella_bsp_GPU/build-dbg/main-16-32
+
+for data in "${genome[@]}" ; do
+	jsrun --smpiargs=-gpu -n32 -c42 -g6 -a6 $bin -k 17 -t 3 -n 7 -u 8 -c 1 -i ${path}/${data} -s kmermatch-17 >> $output
+	jsrun --smpiargs=-gpu -n32 -c42 -g6 -a6 $bin -k 17 -t 3 -n 7 -u 8 -c 1 -i ${path}/${data} -s kmermatch-17 >> $output
+	jsrun --smpiargs=-gpu -n32 -c42 -g6 -a6 $bin -k 17 -t 3 -n 7 -u 8 -c 1 -i ${path}/${data} -s kmermatch-17 >> $output
+done
+
+ 

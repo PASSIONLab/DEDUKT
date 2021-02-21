@@ -46,7 +46,7 @@
 #include "../common/VectorMap.hpp"
 #include "common.h"
 
-int MINIMIZER_LENGTH;
+int MINIMIZER_LENGTH=7;
 #ifdef SINGLE_EXEC
 extern StaticVars _sv;
 #else
@@ -1996,6 +1996,9 @@ size_t ProcessFiles(const vector<filedata> & allfiles, int pass, double & cardin
 					cout << "\tInput fastq file list: " << input_fofn <<endl;
 					cout << "\tK-mer length = " << KMER_LENGTH << endl;
 					cout << "\tMax k-mer length (internal) = " << MAX_KMER_SIZE << endl;
+					if(type == 2 || type ==3){
+						cout << "\tMINIMIZER length = " << MINIMIZER_LENGTH << endl << endl;
+					}
 					// cout << "\tMax read-records per k-mer = " << reliable_max << endl;
 					// cout << "\tMax representable read length = " << sizeof(PosInRead) << " bytes" << endl;
 					// cout << "\tMax number of seeds to retain per candidate = " << max_num_seeds << endl;
