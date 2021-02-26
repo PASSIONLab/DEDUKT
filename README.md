@@ -2,6 +2,10 @@ DEDUKT: DistributED cUda K-Mer CounTer
 
 A distributed-memory parallel *K*-mer counter with NVIDIA GPU support. 
 
+Code for the following paper:
+
+Israt Nisa, Prashant Pandey, Marquita Ellis, Leonid Oliker, Aydin Buluç, Katherine Yelick. Distributed-Memory k-mer Counting on GPUs. Proceedings of the IPDPS, 2021
+
 ## Build requirements:
 - GCC Compiler (tested with 6.4.0)
 - CUDA SDK (tested with 10.2)
