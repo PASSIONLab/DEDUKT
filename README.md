@@ -1,4 +1,5 @@
 DEDUKT: DistributED cUda K-Mer CounTer
+
 A distributed-memory parallel *K*-mer counter with NVIDIA GPU support. 
 
 ## Build requirements:
